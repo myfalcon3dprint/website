@@ -24,3 +24,17 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# AI Agents, Prompts & Local Handover Scaffolding
+.agents/
+.agent-style/
+falcon-agent-kit/
+design-system/
+AGENTS.md
+HANDOVER.md
+RESUME-PROMPT.md
+
+# Scratch Database Files
+supabase/combined_migration.sql
+supabase/bootstrap.sql
+
+
