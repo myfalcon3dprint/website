@@ -1,0 +1,40 @@
+{
+  "version": "1.0.0",
+  "created": "2026-10-11",
+  "status": "awaiting_assets",
+  "notes": "Brand assets have not yet been supplied to the workspace. This manifest will be populated when logo files and other brand materials are provided.",
+  "originals_directory": "assets/brand/originals/",
+  "web_directory": "public/brand/",
+  "assets": [],
+  "expected_assets": [
+    {
+      "name": "falcon-logo-primary",
+      "description": "Primary orange falcon logo (icon + wordmark)",
+      "expected_formats": ["svg", "png"],
+      "status": "not_supplied",
+      "notes": "SVG preferred for web. High-res PNG acceptable."
+    },
+    {
+      "name": "falcon-logo-icon",
+      "description": "Falcon icon only (no wordmark)",
+      "expected_formats": ["svg", "png"],
+      "status": "not_supplied",
+      "notes": "For favicon, mobile header, small contexts"
+    },
+    {
+      "name": "falcon-logo-dark-bg",
+      "description": "Logo variant for dark backgrounds",
+      "expected_formats": ["svg", "png"],
+      "status": "not_supplied",
+      "notes": "May need light-coloured wordmark"
+    },
+    {
+      "name": "falcon-logo-light-bg",
+      "description": "Logo variant for light backgrounds",
+      "expected_formats": ["svg", "png"],
+      "status": "not_supplied",
+      "notes": "Standard version"
+    }
+  ],
+  "checksums": {}
+}
