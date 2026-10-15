@@ -55,6 +55,36 @@ async function runPhase3Verification() {
 
   // 2. Real Authenticated Sessions
   console.log(`\n${BOLD}2. Authenticated Session Setup${RESET}`);
+  const dbAdmin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+
+  // Ensure accounts are present post-reset
+  const { data: usersList } = await dbAdmin.auth.admin.listUsers();
+  const existingEmails = new Set((usersList?.users || []).map((u) => u.email));
+
+  if (!existingEmails.has('admin@falcon3dprints.com')) {
+    const adminId = 'b1ef5469-0a0a-45a0-b7b5-d6beef36cc2b';
+    await dbAdmin.auth.admin.createUser({
+      id: adminId,
+      email: 'admin@falcon3dprints.com',
+      password: 'TestAdminPass123!',
+      email_confirm: true,
+      user_metadata: { full_name: 'Studio Owner', role: 'owner' },
+    });
+    await dbAdmin.from('profiles').upsert({ id: adminId, full_name: 'Studio Owner', role: 'owner' });
+  }
+
+  if (!existingEmails.has('customer@falcon3dprints.com')) {
+    const { data: newCust } = await dbAdmin.auth.admin.createUser({
+      email: 'customer@falcon3dprints.com',
+      password: 'TestCustomerPass123!',
+      email_confirm: true,
+      user_metadata: { full_name: 'Regular Customer', role: 'customer' },
+    });
+    if (newCust?.user) {
+      await dbAdmin.from('profiles').upsert({ id: newCust.user.id, full_name: 'Regular Customer', role: 'customer' });
+    }
+  }
+
   const adminClient = createClient(SUPABASE_URL, ANON_KEY);
   const { data: adminLogin, error: adminLoginErr } = await adminClient.auth.signInWithPassword({
     email: 'admin@falcon3dprints.com',
@@ -88,8 +118,6 @@ async function runPhase3Verification() {
     'x-falcon-test-user-id': adminLogin.user.id,
     'x-falcon-test-secret': TEST_SECRET,
   };
-
-  const dbAdmin = createClient(SUPABASE_URL, SERVICE_KEY);
 
   // 3. Feature 1: Product creation, editing, publishing, and archiving (soft-delete)
   console.log(`\n${BOLD}3. Feature 1: Product Lifecycle (Create, Edit, Publish, Archive)${RESET}`);
@@ -595,6 +623,177 @@ async function runPhase3Verification() {
   assert.strictEqual(preservedItemA.unit_price_paise, unitPriceA, 'Historical unit price must NOT change');
   assert.strictEqual(preservedItemA.product_title, multiVarProd.title, 'Historical product title must NOT change');
   recordResult('Feature 5: Order Reconciliation', 'Historical order line items immutably preserved when catalog changes occur', true, `Historical SKU: ${preservedItemA.variant_sku}, Unit Price: ₹${preservedItemA.unit_price_paise / 100}`);
+
+  // 7.5 Edge Case: Insufficient Stock Causes Complete Rollback
+  const excessiveStockRes = await fetch(`${SERVER_URL}/api/orders/${testOrder.id}/items`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      action: 'update_quantity',
+      itemId: itemA.id,
+      newQuantity: 9999, // Way beyond available stock
+      reason: 'Attempting invalid allocation exceeding physical stock',
+      lastKnownUpdatedAt: decOrder.updatedAt,
+    }),
+  });
+  assert.strictEqual(excessiveStockRes.status, 400, 'Excessive stock allocation must be rejected');
+  const excessiveData = await excessiveStockRes.json();
+  assert(excessiveData.error.toLowerCase().includes('insufficient stock'), 'Error message must specify insufficient stock');
+  
+  // Verify complete rollback: order total and variant stock completely untouched
+  const { data: stockAfterRollback } = await dbAdmin.from('product_variants').select('stock_quantity').eq('id', varA.id).single();
+  assert.strictEqual(stockAfterRollback.stock_quantity, stockReplenishedA.stock_quantity, 'Stock must not change when transaction rolls back');
+  const { data: orderAfterRollback } = await dbAdmin.from('orders').select('total_paise').eq('id', testOrder.id).single();
+  assert.strictEqual(orderAfterRollback.total_paise, decOrder.totalPaise, 'Order total must remain rolled back');
+  recordResult('Feature 5: Order Reconciliation', 'Insufficient stock triggers complete transactional rollback', true, 'Stock and order totals fully preserved');
+
+  // 7.6 Edge Case: Stale Concurrent Corrections Are Rejected (HTTP 409)
+  const staleConflictRes = await fetch(`${SERVER_URL}/api/orders/${testOrder.id}/items`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      action: 'update_quantity',
+      itemId: itemA.id,
+      newQuantity: 2,
+      reason: 'Concurrent operator collision test',
+      lastKnownUpdatedAt: testOrder.updated_at, // Stale timestamp from order creation!
+    }),
+  });
+  assert.strictEqual(staleConflictRes.status, 409, 'Stale concurrent update must return HTTP 409 Concurrency Conflict');
+  recordResult('Feature 5: Order Reconciliation', 'Stale concurrent correction rejected with HTTP 409', true, 'Optimistic lock prevented race condition');
+
+  // 7.7 Edge Case: Shipped and Locked Orders Cannot Be Reconciled
+  const { data: updatedShipped } = await dbAdmin.from('orders').update({ status: 'shipped' }).eq('id', testOrder.id).select().single();
+  const shippedOrderRes = await fetch(`${SERVER_URL}/api/orders/${testOrder.id}/items`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      action: 'update_quantity',
+      itemId: itemA.id,
+      newQuantity: 2,
+      reason: 'Attempt to modify shipped dispatch',
+      lastKnownUpdatedAt: updatedShipped.updated_at,
+    }),
+  });
+  assert.strictEqual(shippedOrderRes.status, 400, 'Shipped order modification must be rejected');
+  const shippedData = await shippedOrderRes.json();
+  assert(shippedData.error.includes('shipped'), 'Error must identify locked order status');
+  await dbAdmin.from('orders').update({ status: 'confirmed' }).eq('id', testOrder.id); // restore status
+  recordResult('Feature 5: Order Reconciliation', 'Terminal and shipped order statuses strictly protected from item alteration', true, 'HTTP 400 rejection confirmed');
+
+  // 7.8 Edge Case: Corrections Preserve Shipping, Proportional Taxes, and Historical Pricing
+  const orderWithTaxAndShipping = await dbAdmin.from('orders').insert({
+    order_number: `FAL-TAX-SHIP-${uniqueId}`,
+    customer_name: 'Dr. APJ Abdul Kalam',
+    customer_email: 'kalam@drdo.res.in',
+    customer_phone: '+919876543211',
+    shipping_address: { fullName: 'Dr. Kalam', phone: '+919876543211', addressLine1: 'DRDO Complex', city: 'Hyderabad', state: 'Telangana', pinCode: '500058' },
+    subtotal_paise: 220000, // 2 items at 110000
+    shipping_paise: 15000,  // ₹150 flat shipping
+    tax_paise: 39600,       // 18% of 220000
+    total_paise: 274600,
+    payment_status: 'captured',
+    payment_method: 'Razorpay UPI/Card',
+    status: 'confirmed',
+  }).select().single();
+
+  const orderItemTax = await dbAdmin.from('order_items').insert({
+    order_id: orderWithTaxAndShipping.data.id,
+    product_id: multiVarProd.id,
+    product_title: 'Historical Title Before Catalog Inflation',
+    variant_id: varA.id,
+    variant_sku: skuA,
+    variant_details: 'Standard',
+    unit_price_paise: 110000,
+    quantity: 2,
+    total_paise: 220000,
+    stock_type: 'ready_stock',
+    production_status: 'not_applicable',
+  }).select().single();
+
+  const taxReconcileRes = await fetch(`${SERVER_URL}/api/orders/${orderWithTaxAndShipping.data.id}/items`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      action: 'update_quantity',
+      itemId: orderItemTax.data.id,
+      newQuantity: 3, // +1 unit at 110000 -> subtotal 330000
+      reason: 'Adding single unit under existing tax structure',
+      lastKnownUpdatedAt: orderWithTaxAndShipping.data.updated_at,
+    }),
+  });
+  assert.strictEqual(taxReconcileRes.status, 200);
+  const taxReconcileOrder = (await taxReconcileRes.json()).order;
+  assert.strictEqual(taxReconcileOrder.subtotalPaise, 330000, 'Subtotal must calculate from historical 110000 unit price');
+  assert.strictEqual(taxReconcileOrder.shippingPaise, 15000, 'Shipping must remain strictly preserved at 15000 paise');
+  assert.strictEqual(taxReconcileOrder.taxPaise, 59400, 'Tax must scale proportionally (18% of 330000 = 59400)');
+  assert.strictEqual(taxReconcileOrder.totalPaise, 330000 + 15000 + 59400, 'Total must equal subtotal + shipping + tax');
+  recordResult('Feature 5: Order Reconciliation', 'Explicit preservation of flat shipping, proportional 18% GST, and historical pricing', true, `Subtotal: ₹${taxReconcileOrder.subtotalPaise/100}, Ship: ₹${taxReconcileOrder.shippingPaise/100}, Tax: ₹${taxReconcileOrder.taxPaise/100}`);
+
+  // 7.9 Edge Case: Decrease on Unpaid Order Does NOT Create a Refund Due
+  const unpaidOrder = await dbAdmin.from('orders').insert({
+    order_number: `FAL-UNPAID-${uniqueId}`,
+    customer_name: 'Unpaid Customer',
+    customer_email: 'unpaid@example.com',
+    customer_phone: '+919876543212',
+    shipping_address: { fullName: 'Unpaid Customer', phone: '+919876543212', addressLine1: 'Line 1', city: 'Nashik', state: 'MH', pinCode: '422001' },
+    subtotal_paise: 200000,
+    shipping_paise: 0,
+    tax_paise: 0,
+    total_paise: 200000,
+    payment_status: 'pending', // UNPAID
+    payment_method: 'Cash on Delivery (Local Nashik)',
+    status: 'confirmed',
+  }).select().single();
+
+  const unpaidItem = await dbAdmin.from('order_items').insert({
+    order_id: unpaidOrder.data.id,
+    product_id: multiVarProd.id,
+    product_title: 'Unpaid Test Item',
+    variant_id: varB.id,
+    variant_sku: skuB,
+    variant_details: 'Resin',
+    unit_price_paise: 100000,
+    quantity: 2,
+    total_paise: 200000,
+    stock_type: 'ready_stock',
+    production_status: 'not_applicable',
+  }).select().single();
+
+  const unpaidDecRes = await fetch(`${SERVER_URL}/api/orders/${unpaidOrder.data.id}/items`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      action: 'update_quantity',
+      itemId: unpaidItem.data.id,
+      newQuantity: 1, // downscale unpaid order
+      reason: 'Customer adjusted unpaid cart balance',
+      lastKnownUpdatedAt: unpaidOrder.data.updated_at,
+    }),
+  });
+  assert.strictEqual(unpaidDecRes.status, 200);
+  const unpaidDecOrder = (await unpaidDecRes.json()).order;
+  assert.strictEqual(unpaidDecOrder.totalPaise, 100000, 'Total adjusted downwards');
+  assert.strictEqual(unpaidDecOrder.paymentStatus, 'pending', 'Unpaid order must NOT transition to refund_due_pending_approval');
+  recordResult('Feature 5: Order Reconciliation', 'Financial calculations against payments prevent refund creation on unpaid orders', true, 'Payment status remained pending as expected');
+
+  // 7.10 Edge Case: Repeating Request Cannot Adjust Inventory Twice (Idempotency)
+  const { data: stockBeforeRepeat } = await dbAdmin.from('product_variants').select('stock_quantity').eq('id', varB.id).single();
+  const repeatReqRes = await fetch(`${SERVER_URL}/api/orders/${unpaidOrder.data.id}/items`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      action: 'update_quantity',
+      itemId: unpaidItem.data.id,
+      newQuantity: 1, // EXACT SAME target quantity
+      reason: 'Network retry of identical correction request',
+      lastKnownUpdatedAt: unpaidDecOrder.updatedAt,
+    }),
+  });
+  assert.strictEqual(repeatReqRes.status, 200);
+  const { data: stockAfterRepeat } = await dbAdmin.from('product_variants').select('stock_quantity').eq('id', varB.id).single();
+  assert.strictEqual(stockAfterRepeat.stock_quantity, stockBeforeRepeat.stock_quantity, 'Inventory stock must not adjust twice on repeated request');
+  recordResult('Feature 5: Order Reconciliation', 'Duplicate or retry requests maintain idempotency with zero duplicate inventory movement', true, `Stock preserved at ${stockAfterRepeat.stock_quantity}`);
 
   // 8. Feature 6: Product/SKU filters on multi-product orders
   console.log(`\n${BOLD}8. Feature 6: Multi-Product and SKU Order Filtering${RESET}`);

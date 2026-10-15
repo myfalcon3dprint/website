@@ -55,6 +55,7 @@ DECLARE
     v_product RECORD;
     v_old_total_paise INT;
     v_new_subtotal_paise INT;
+    v_new_tax_paise INT;
     v_new_total_paise INT;
     v_delta_qty INT;
     v_unit_price_paise INT;
@@ -179,26 +180,30 @@ BEGIN
             -- Check and decrement variant stock
             SELECT * INTO v_variant
             FROM public.product_variants
-            WHERE sku = v_item.variant_sku
+            WHERE (v_item.variant_id IS NOT NULL AND id = v_item.variant_id)
+               OR sku = v_item.variant_sku
             FOR UPDATE;
 
-            IF FOUND AND v_variant.stock_quantity < v_delta_qty THEN
+            IF NOT FOUND THEN
+                RAISE EXCEPTION 'Associated variant for SKU % not found in inventory', v_item.variant_sku;
+            END IF;
+
+            IF v_variant.stock_quantity < v_delta_qty THEN
                 RAISE EXCEPTION 'Insufficient stock to increase quantity: requested +%, available %',
                     v_delta_qty, v_variant.stock_quantity;
             END IF;
 
-            IF FOUND THEN
-                UPDATE public.product_variants
-                SET stock_quantity = stock_quantity - v_delta_qty
-                WHERE id = v_variant.id;
-            END IF;
+            UPDATE public.product_variants
+            SET stock_quantity = stock_quantity - v_delta_qty
+            WHERE id = v_variant.id;
 
             v_inventory_note := format('Decremented %s unit(s) of SKU %s', v_delta_qty, v_item.variant_sku);
         ELSIF v_delta_qty < 0 THEN
             -- Restock variant stock
             SELECT * INTO v_variant
             FROM public.product_variants
-            WHERE sku = v_item.variant_sku
+            WHERE (v_item.variant_id IS NOT NULL AND id = v_item.variant_id)
+               OR sku = v_item.variant_sku
             FOR UPDATE;
 
             IF FOUND THEN
@@ -234,7 +239,8 @@ BEGIN
         -- Restock
         SELECT * INTO v_variant
         FROM public.product_variants
-        WHERE sku = v_item.variant_sku
+        WHERE (v_item.variant_id IS NOT NULL AND id = v_item.variant_id)
+           OR sku = v_item.variant_sku
         FOR UPDATE;
 
         IF FOUND THEN
@@ -252,25 +258,37 @@ BEGIN
         RAISE EXCEPTION 'Unknown action "%", expected add, update_quantity, or remove', p_action;
     END IF;
 
-    -- 3. Recalculate Subtotal & Total
+    -- 3. Recalculate Subtotal, Proportional Tax, & Total
     SELECT COALESCE(SUM(total_paise), 0) INTO v_new_subtotal_paise
     FROM public.order_items
     WHERE order_id = p_order_id;
 
-    v_new_total_paise := v_new_subtotal_paise + v_order.shipping_paise + v_order.tax_paise;
-
-    -- Determine new payment status based on price differential
-    IF v_new_total_paise > v_old_total_paise THEN
-        v_new_payment_status := 'additional_payment_due';
-        v_financial_note := format('Total increased from %s paise to %s paise. Additional %s paise due from customer.',
-            v_old_total_paise, v_new_total_paise, v_new_total_paise - v_old_total_paise);
-    ELSIF v_new_total_paise < v_old_total_paise THEN
-        v_new_payment_status := 'refund_due_pending_approval';
-        v_financial_note := format('Total reduced from %s paise to %s paise. Refund of %s paise due (pending owner authorization).',
-            v_old_total_paise, v_new_total_paise, v_old_total_paise - v_new_total_paise);
+    IF v_order.subtotal_paise > 0 AND v_order.tax_paise > 0 THEN
+        v_new_tax_paise := ROUND(v_new_subtotal_paise::NUMERIC * (v_order.tax_paise::NUMERIC / v_order.subtotal_paise::NUMERIC));
     ELSE
+        v_new_tax_paise := v_order.tax_paise;
+    END IF;
+
+    v_new_total_paise := v_new_subtotal_paise + v_order.shipping_paise + v_new_tax_paise;
+
+    -- Determine new payment status based on price differential and actual payment status
+    IF v_order.payment_status IN ('pending', 'failed') THEN
         v_new_payment_status := v_order.payment_status;
-        v_financial_note := 'Total unchanged.';
+        v_financial_note := format('Unpaid order (%s): total adjusted to %s paise. No refund or merchant balance due.',
+            v_order.payment_status, v_new_total_paise);
+    ELSE
+        IF v_new_total_paise > v_old_total_paise THEN
+            v_new_payment_status := 'additional_payment_due';
+            v_financial_note := format('Total increased from %s paise to %s paise. Additional %s paise due from customer.',
+                v_old_total_paise, v_new_total_paise, v_new_total_paise - v_old_total_paise);
+        ELSIF v_new_total_paise < v_old_total_paise THEN
+            v_new_payment_status := 'refund_due_pending_approval';
+            v_financial_note := format('Total reduced from %s paise to %s paise. Refund of %s paise due (pending owner authorization).',
+                v_old_total_paise, v_new_total_paise, v_old_total_paise - v_new_total_paise);
+        ELSE
+            v_new_payment_status := v_order.payment_status;
+            v_financial_note := 'Total unchanged.';
+        END IF;
     END IF;
 
     -- Prepare status history entry
@@ -288,6 +306,7 @@ BEGIN
     -- 4. Update Order
     UPDATE public.orders
     SET subtotal_paise = v_new_subtotal_paise,
+        tax_paise = v_new_tax_paise,
         total_paise = v_new_total_paise,
         payment_status = v_new_payment_status,
         status_history = v_new_status_history,
@@ -305,3 +324,7 @@ BEGIN
     );
 END;
 $$;
+
+-- 5. RPC Grants
+REVOKE ALL ON FUNCTION public.reconcile_order_item_transactional FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.reconcile_order_item_transactional TO authenticated, service_role;
