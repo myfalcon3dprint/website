@@ -44,6 +44,7 @@ export default function AdminOrdersPage() {
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [skuFilter, setSkuFilter] = useState<string>('');
+  const [productFilter, setProductFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
@@ -65,7 +66,8 @@ export default function AdminOrdersPage() {
 
   // Item Correction & Financial Reconciliation modal state
   const [correctingOrder, setCorrectingOrder] = useState<Order | null>(null);
-  const [correctionReason, setCorrectionReason] = useState<string>('Inventory reconciliation adjustment');
+  const [stagedQuantities, setStagedQuantities] = useState<Record<string, number>>({});
+  const [correctionReason, setCorrectionReason] = useState<string>('Customer requested quantity adjustment');
   const [isCorrectingItem, setIsCorrectingItem] = useState<boolean>(false);
   const [reconciliationNote, setReconciliationNote] = useState<string | null>(null);
 
@@ -86,6 +88,7 @@ export default function AdminOrdersPage() {
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (searchQuery.trim()) params.set('search', searchQuery.trim());
       if (skuFilter.trim()) params.set('sku', skuFilter.trim());
+      if (productFilter.trim()) params.set('product', productFilter.trim());
 
       const res = await fetch(`/api/orders?${params.toString()}`);
       if (!res.ok) {
@@ -105,7 +108,7 @@ export default function AdminOrdersPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [page, limit, statusFilter, searchQuery, skuFilter]);
+  }, [page, limit, statusFilter, searchQuery, skuFilter, productFilter]);
 
   useEffect(() => {
     fetchOrders();
@@ -247,14 +250,37 @@ export default function AdminOrdersPage() {
     }
   };
 
-  // Item correction & reconciliation handler
-  const handleItemCorrection = async (
-    action: 'add' | 'update_quantity' | 'remove',
-    itemId?: string,
-    newQuantity?: number,
-    variantId?: string
-  ) => {
+  // Open Item Correction Modal and initialize staged quantities
+  const openCorrectionModal = (ord: Order) => {
+    setCorrectingOrder(ord);
+    setCorrectionReason('Customer requested line item quantity adjustment');
+    setReconciliationNote(null);
+    const initialQty: Record<string, number> = {};
+    for (const it of ord.items) {
+      initialQty[it.id] = it.quantity;
+    }
+    setStagedQuantities(initialQty);
+  };
+
+  const updateStagedQuantity = (itemId: string, newQty: number) => {
+    setStagedQuantities((prev) => ({
+      ...prev,
+      [itemId]: Math.max(0, newQty),
+    }));
+  };
+
+  const handleCommitCorrection = async () => {
     if (!correctingOrder) return;
+    const modifiedItems = correctingOrder.items.filter((it) => {
+      const staged = stagedQuantities[it.id];
+      return staged !== undefined && staged !== it.quantity;
+    });
+
+    if (modifiedItems.length === 0) {
+      alert('No item quantity changes were staged.');
+      return;
+    }
+
     if (!correctionReason.trim() || correctionReason.trim().length < 5) {
       alert('Please specify an operational reason (minimum 5 characters) for auditing.');
       return;
@@ -264,38 +290,57 @@ export default function AdminOrdersPage() {
     setReconciliationNote(null);
 
     try {
-      const res = await fetch(`/api/orders/${correctingOrder.id}/items`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action,
-          itemId,
-          variantId,
-          newQuantity,
-          reason: correctionReason.trim(),
-          lastKnownUpdatedAt: correctingOrder.updatedAt,
-        }),
-      });
+      let currentOrderState = correctingOrder;
+      const notesAccumulated: string[] = [];
 
-      if (res.status === 409) {
-        alert('Concurrency Conflict: Order was modified by another operator. Reloading data.');
-        setCorrectingOrder(null);
-        fetchOrders();
-        return;
+      for (const item of modifiedItems) {
+        const targetQty = stagedQuantities[item.id];
+        const action = targetQty === 0 ? 'remove' : 'update_quantity';
+
+        const res = await fetch(`/api/orders/${currentOrderState.id}/items`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action,
+            itemId: item.id,
+            newQuantity: targetQty,
+            reason: correctionReason.trim(),
+            lastKnownUpdatedAt: currentOrderState.updatedAt,
+          }),
+        });
+
+        if (res.status === 409) {
+          alert('Concurrency Conflict: Order was modified by another operator. Reloading data.');
+          setCorrectingOrder(null);
+          fetchOrders();
+          return;
+        }
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to reconcile order item');
+        }
+
+        const data = await res.json();
+        currentOrderState = data.order;
+        if (data.reconciliation?.inventoryAdjustmentNote) {
+          notesAccumulated.push(data.reconciliation.inventoryAdjustmentNote);
+        }
+        if (data.reconciliation?.financialAdjustmentNote) {
+          notesAccumulated.push(data.reconciliation.financialAdjustmentNote);
+        }
       }
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to reconcile order item');
+      setOrders((prev) => prev.map((o) => (o.id === currentOrderState.id ? currentOrderState : o)));
+      setCorrectingOrder(currentOrderState);
+      const refreshedQty: Record<string, number> = {};
+      for (const it of currentOrderState.items) {
+        refreshedQty[it.id] = it.quantity;
       }
+      setStagedQuantities(refreshedQty);
 
-      const data = await res.json();
-      setOrders((prev) => prev.map((o) => (o.id === correctingOrder.id ? data.order : o)));
-      setCorrectingOrder(data.order);
-      setReconciliationNote(
-        `${data.reconciliation.inventoryAdjustmentNote}. ${data.reconciliation.financialAdjustmentNote}.`
-      );
-      setSuccessMessage(`Order items reconciled for ${data.order.orderNumber}.`);
+      setReconciliationNote(notesAccumulated.join('; '));
+      setSuccessMessage(`Order ${currentOrderState.orderNumber} line items reconciled successfully.`);
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Reconciliation failed';
@@ -419,6 +464,19 @@ export default function AdminOrdersPage() {
 
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+            Filter by Product / Title
+          </label>
+          <input
+            type="text"
+            className="input"
+            placeholder="e.g. Planter, Vase, Geometric..."
+            value={productFilter}
+            onChange={(e) => { setProductFilter(e.target.value); setPage(1); }}
+          />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '6px' }}>
             Search Order / Customer
           </label>
           <input
@@ -496,8 +554,20 @@ export default function AdminOrdersPage() {
 
                         <td style={{ padding: '14px 16px', fontWeight: 600, color: 'var(--text-primary)' }}>
                           {formatINR(ord.totalPaise)}
-                          <div style={{ fontSize: '0.7rem', color: ord.paymentStatus === 'captured' ? 'var(--success)' : 'var(--danger)', fontWeight: 500 }}>
-                            {ord.paymentStatus.toUpperCase()}
+                          <div style={{ marginTop: '3px' }}>
+                            {ord.paymentStatus === 'additional_payment_due' ? (
+                              <span style={{ fontSize: '0.68rem', background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                ADDITIONAL DUE
+                              </span>
+                            ) : ord.paymentStatus === 'refund_due_pending_approval' ? (
+                              <span style={{ fontSize: '0.68rem', background: 'rgba(168, 85, 247, 0.15)', color: '#a855f7', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                REFUND DUE (PENDING APPROVAL)
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.7rem', color: ord.paymentStatus === 'captured' ? 'var(--success)' : 'var(--danger)', fontWeight: 500 }}>
+                                {ord.paymentStatus.toUpperCase()}
+                              </span>
+                            )}
                           </div>
                           {ord.refundStatus && ord.refundStatus !== 'none' && (
                             <span style={{ fontSize: '0.68rem', color: 'var(--brand-accent)', fontWeight: 600 }}>
@@ -533,11 +603,7 @@ export default function AdminOrdersPage() {
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
                             {canEditAddress && !['packed', 'shipped', 'delivered', 'cancelled'].includes(ord.status) && (
                               <button
-                                onClick={() => {
-                                  setCorrectingOrder(ord);
-                                  setCorrectionReason('Item quantity reconciliation');
-                                  setReconciliationNote(null);
-                                }}
+                                onClick={() => openCorrectionModal(ord)}
                                 className="btn btn-outline"
                                 style={{ padding: '4px 8px', fontSize: '0.72rem', color: 'var(--accent-primary)' }}
                                 title="Correct Order Items & Inventory Reconciliation"
@@ -840,167 +906,289 @@ export default function AdminOrdersPage() {
         </div>
       )}
 
-      {/* Item Correction & Inventory Reconciliation Modal */}
-      {correctingOrder && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(24, 24, 24, 0.7)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100,
-            padding: '16px',
-          }}
-        >
-          <div className="card" style={{ maxWidth: '580px', width: '100%', padding: '24px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <div>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                  Order Items Reconciliation
-                </h2>
-                <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-                  Order: <strong>{correctingOrder.orderNumber}</strong> • Total: <strong>{formatINR(correctingOrder.totalPaise)}</strong>
+      {/* Item Correction & Inventory Reconciliation Modal with Before/After Review */}
+      {correctingOrder && (() => {
+        const modifiedItems = correctingOrder.items.filter((it) => {
+          const staged = stagedQuantities[it.id];
+          return staged !== undefined && staged !== it.quantity;
+        });
+
+        const projectedTotalPaise = correctingOrder.items.reduce((sum, it) => {
+          const staged = stagedQuantities[it.id] !== undefined ? stagedQuantities[it.id] : it.quantity;
+          return sum + it.unitPricePaise * staged;
+        }, (correctingOrder.shippingPaise || 0) + (correctingOrder.taxPaise || 0));
+
+        const totalDeltaPaise = projectedTotalPaise - correctingOrder.totalPaise;
+
+        return (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(24, 24, 24, 0.75)',
+              backdropFilter: 'blur(5px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100,
+              padding: '16px',
+            }}
+          >
+            <div className="card" style={{ maxWidth: '640px', width: '100%', padding: '24px', maxHeight: '92vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
+                    Order Items Reconciliation
+                  </h2>
+                  <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                    Order: <strong>{correctingOrder.orderNumber}</strong> • Current Total: <strong>{formatINR(correctingOrder.totalPaise)}</strong>
+                  </span>
+                </div>
+                <button
+                  onClick={() => setCorrectingOrder(null)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {reconciliationNote && (
+                <div
+                  style={{
+                    padding: '10px 14px',
+                    marginBottom: '16px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--success-bg)',
+                    border: '1px solid var(--success-border)',
+                    color: 'var(--success)',
+                    fontSize: '0.8125rem',
+                  }}
+                >
+                  ✓ {reconciliationNote}
+                </div>
+              )}
+
+              {/* Line Items List with Stepper */}
+              <div style={{ marginBottom: '20px' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)' }}>
+                  Order Line Items ({correctingOrder.items.length})
                 </span>
+
+                <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {correctingOrder.items.map((item) => {
+                    const currentStaged = stagedQuantities[item.id] !== undefined ? stagedQuantities[item.id] : item.quantity;
+                    const isChanged = currentStaged !== item.quantity;
+
+                    return (
+                      <div
+                        key={item.id}
+                        style={{
+                          padding: '12px 14px',
+                          borderRadius: 'var(--radius-sm)',
+                          background: isChanged ? 'rgba(59, 130, 246, 0.05)' : 'var(--surface)',
+                          border: isChanged ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid var(--border-decor)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '12px',
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.85rem' }}>
+                            {item.productTitle}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                            SKU: {item.variantSku} • {formatINR(item.unitPricePaise)} each
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <button
+                            type="button"
+                            disabled={isCorrectingItem || currentStaged === 0}
+                            onClick={() => updateStagedQuantity(item.id, currentStaged - 1)}
+                            className="btn btn-outline"
+                            style={{ padding: '2px 8px', height: '28px', minWidth: '28px' }}
+                            title="Decrease quantity"
+                          >
+                            <Minus size={12} />
+                          </button>
+
+                          <span style={{ fontWeight: 600, minWidth: '28px', textAlign: 'center', fontSize: '0.875rem', color: currentStaged === 0 ? 'var(--danger)' : isChanged ? 'var(--accent-primary)' : 'var(--text-primary)' }}>
+                            {currentStaged === 0 ? '0 (Del)' : currentStaged}
+                          </span>
+
+                          <button
+                            type="button"
+                            disabled={isCorrectingItem}
+                            onClick={() => updateStagedQuantity(item.id, currentStaged + 1)}
+                            className="btn btn-outline"
+                            style={{ padding: '2px 8px', height: '28px', minWidth: '28px' }}
+                            title="Increase quantity"
+                          >
+                            <Plus size={12} />
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isCorrectingItem}
+                            onClick={() => updateStagedQuantity(item.id, 0)}
+                            className="btn btn-outline"
+                            style={{ padding: '2px 8px', height: '28px', color: 'var(--danger)', marginLeft: '4px' }}
+                            title="Stage item removal"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <button
-                onClick={() => setCorrectingOrder(null)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
-              >
-                <X size={20} />
-              </button>
-            </div>
 
-            {reconciliationNote && (
-              <div
-                style={{
-                  padding: '10px 14px',
-                  marginBottom: '16px',
-                  borderRadius: 'var(--radius-sm)',
-                  background: 'var(--success-bg)',
-                  border: '1px solid var(--success-border)',
-                  color: 'var(--success)',
-                  fontSize: '0.8125rem',
-                }}
-              >
-                ✓ {reconciliationNote}
-              </div>
-            )}
+              {/* Before vs After Review Card (shown when modifications staged) */}
+              {modifiedItems.length > 0 && (
+                <div style={{ background: 'var(--surface-raised)', border: '1px solid var(--border-decor)', borderRadius: 'var(--radius-sm)', padding: '16px', marginBottom: '20px' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: '10px' }}>
+                    Review Staged Corrections (Before vs. After)
+                  </div>
 
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                Operational Reason for Audit Log *
-              </label>
-              <input
-                type="text"
-                required
-                className="input"
-                placeholder="e.g. Customer requested extra piece via support call"
-                value={correctionReason}
-                onChange={(e) => setCorrectionReason(e.target.value)}
-                style={{ width: '100%', fontSize: '0.8125rem' }}
-              />
-            </div>
+                  <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse', marginBottom: '12px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border-decor)', color: 'var(--text-secondary)' }}>
+                        <th style={{ textAlign: 'left', padding: '4px 0' }}>Item</th>
+                        <th style={{ textAlign: 'center', padding: '4px 0' }}>Before</th>
+                        <th style={{ textAlign: 'center', padding: '4px 0' }}>After</th>
+                        <th style={{ textAlign: 'right', padding: '4px 0' }}>Line Total Delta</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modifiedItems.map((item) => {
+                        const newQty = stagedQuantities[item.id] ?? item.quantity;
+                        const deltaQty = newQty - item.quantity;
+                        const deltaPaise = deltaQty * item.unitPricePaise;
+                        return (
+                          <tr key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                            <td style={{ padding: '6px 0', fontWeight: 500 }}>
+                              {item.productTitle} <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>({item.variantSku})</span>
+                            </td>
+                            <td style={{ padding: '6px 0', textAlign: 'center' }}>
+                              {item.quantity} × {formatINR(item.unitPricePaise)}
+                            </td>
+                            <td style={{ padding: '6px 0', textAlign: 'center', fontWeight: 600 }}>
+                              {newQty === 0 ? <span style={{ color: 'var(--danger)' }}>0 (Remove)</span> : `${newQty} × ${formatINR(item.unitPricePaise)}`}
+                            </td>
+                            <td style={{ padding: '6px 0', textAlign: 'right', fontWeight: 600, color: deltaQty > 0 ? '#f59e0b' : '#a855f7' }}>
+                              {deltaQty > 0 ? `+${deltaQty}` : deltaQty} ({deltaPaise >= 0 ? `+${formatINR(deltaPaise)}` : `-${formatINR(Math.abs(deltaPaise))}`})
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
 
-            <div style={{ marginBottom: '20px' }}>
-              <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)' }}>
-                Line Items ({correctingOrder.items.length})
-              </span>
-
-              <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {correctingOrder.items.map((item) => (
-                  <div
-                    key={item.id}
-                    style={{
-                      padding: '12px 14px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border-decor)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '12px',
-                    }}
-                  >
+                  {/* Financial Comparison */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', padding: '10px', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', fontSize: '0.78rem', marginBottom: '12px' }}>
                     <div>
-                      <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.85rem' }}>
-                        {item.productTitle}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                        SKU: {item.variantSku} • {formatINR(item.unitPricePaise)} each
-                      </div>
+                      <span style={{ color: 'var(--text-muted)' }}>Original Order Total:</span>
+                      <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{formatINR(correctingOrder.totalPaise)}</div>
                     </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <button
-                        type="button"
-                        disabled={isCorrectingItem}
-                        onClick={() => {
-                          if (item.quantity <= 1) {
-                            if (confirm(`Remove '${item.productTitle}' from this order?`)) {
-                              handleItemCorrection('remove', item.id);
-                            }
-                          } else {
-                            handleItemCorrection('update_quantity', item.id, item.quantity - 1);
-                          }
-                        }}
-                        className="btn btn-outline"
-                        style={{ padding: '2px 8px', height: '28px', minWidth: '28px' }}
-                        title="Decrease quantity or remove"
-                      >
-                        <Minus size={12} />
-                      </button>
-
-                      <span style={{ fontWeight: 600, minWidth: '24px', textAlign: 'center', fontSize: '0.875rem' }}>
-                        {item.quantity}
-                      </span>
-
-                      <button
-                        type="button"
-                        disabled={isCorrectingItem}
-                        onClick={() => handleItemCorrection('update_quantity', item.id, item.quantity + 1)}
-                        className="btn btn-outline"
-                        style={{ padding: '2px 8px', height: '28px', minWidth: '28px' }}
-                        title="Increase quantity and decrement stock"
-                      >
-                        <Plus size={12} />
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={isCorrectingItem}
-                        onClick={() => {
-                          if (confirm(`Remove '${item.productTitle}' completely?`)) {
-                            handleItemCorrection('remove', item.id);
-                          }
-                        }}
-                        className="btn btn-outline"
-                        style={{ padding: '2px 8px', height: '28px', color: 'var(--danger)', marginLeft: '4px' }}
-                        title="Remove item"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)' }}>Projected New Total:</span>
+                      <div style={{ fontWeight: 600, fontSize: '0.875rem', color: totalDeltaPaise > 0 ? '#f59e0b' : totalDeltaPaise < 0 ? '#a855f7' : 'var(--text-primary)' }}>
+                        {formatINR(projectedTotalPaise)} ({totalDeltaPaise >= 0 ? `+${formatINR(totalDeltaPaise)}` : `-${formatINR(Math.abs(totalDeltaPaise))}`})
+                      </div>
                     </div>
                   </div>
-                ))}
+
+                  {/* Explicit Resulting Financial State */}
+                  <div style={{ padding: '10px 14px', borderRadius: '4px', background: totalDeltaPaise > 0 ? 'rgba(245, 158, 11, 0.12)' : totalDeltaPaise < 0 ? 'rgba(168, 85, 247, 0.12)' : 'rgba(255,255,255,0.03)', border: `1px solid ${totalDeltaPaise > 0 ? 'rgba(245, 158, 11, 0.35)' : totalDeltaPaise < 0 ? 'rgba(168, 85, 247, 0.35)' : 'var(--border-decor)'}`, fontSize: '0.8125rem' }}>
+                    {totalDeltaPaise > 0 ? (
+                      <div>
+                        <strong style={{ color: '#f59e0b' }}>EXPLICIT FINANCIAL STATE: ADDITIONAL PAYMENT DUE</strong>
+                        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+                          Customer owes an additional {formatINR(totalDeltaPaise)}. Inventory will be locked and decremented transactionally upon confirmation.
+                        </p>
+                      </div>
+                    ) : totalDeltaPaise < 0 ? (
+                      <div>
+                        <strong style={{ color: '#a855f7' }}>EXPLICIT FINANCIAL STATE: REFUND DUE (PENDING OWNER APPROVAL)</strong>
+                        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+                          A refundable credit of {formatINR(Math.abs(totalDeltaPaise))} is recorded. Inventory will be restocked transactionally. Actual refund disbursement remains behind explicit authorized owner approval.
+                        </p>
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--text-secondary)' }}>Line quantities changed with net zero order total impact.</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Operational Reason Field */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Operational Reason for Audit Log * (min 5 characters)
+                </label>
+                <input
+                  type="text"
+                  required
+                  className="input"
+                  placeholder="e.g. Customer requested extra piece via phone support"
+                  value={correctionReason}
+                  onChange={(e) => setCorrectionReason(e.target.value)}
+                  style={{ width: '100%', fontSize: '0.8125rem' }}
+                />
+                {correctionReason.trim().length > 0 && correctionReason.trim().length < 5 && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '4px', display: 'block' }}>
+                    Reason must be at least 5 characters.
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                {modifiedItems.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={isCorrectingItem}
+                    onClick={() => {
+                      const resetQty: Record<string, number> = {};
+                      for (const it of correctingOrder.items) {
+                        resetQty[it.id] = it.quantity;
+                      }
+                      setStagedQuantities(resetQty);
+                    }}
+                    className="btn btn-outline"
+                    style={{ padding: '8px 16px', fontSize: '0.8125rem' }}
+                  >
+                    Reset Staged Changes
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setCorrectingOrder(null)}
+                  className="btn btn-outline"
+                  style={{ padding: '8px 16px', fontSize: '0.8125rem' }}
+                >
+                  Close
+                </button>
+
+                {modifiedItems.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={isCorrectingItem || correctionReason.trim().length < 5}
+                    onClick={handleCommitCorrection}
+                    className="btn btn-primary"
+                    style={{ padding: '8px 20px', fontSize: '0.8125rem' }}
+                  >
+                    {isCorrectingItem ? 'Reconciling...' : 'Confirm Correction & Reconcile'}
+                  </button>
+                )}
               </div>
             </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button
-                type="button"
-                onClick={() => setCorrectingOrder(null)}
-                className="btn btn-outline"
-                style={{ padding: '8px 18px' }}
-              >
-                Close
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

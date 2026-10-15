@@ -75,10 +75,13 @@ export async function middleware(request: NextRequest) {
     },
   });
 
+  const authHeader = request.headers.get('authorization');
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : undefined;
+
   const {
     data: { user },
     error: authError,
-  } = await supabase.auth.getUser();
+  } = await supabase.auth.getUser(token);
 
   // 1. Unauthenticated -> 401 on API, redirect to /login on pages
   if (authError || !user) {

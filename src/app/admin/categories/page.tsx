@@ -44,7 +44,7 @@ export default function AdminCategoriesPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/categories');
+      const res = await fetch('/api/categories?all=true');
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load categories');
       setCategories(data.categories || []);

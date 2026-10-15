@@ -51,6 +51,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       images,
       features,
       specs,
+      variants,
       isPublished,
       lastKnownUpdatedAt,
       expectedVersion,
@@ -129,9 +130,81 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const updatedProduct = updatedProducts[0];
+    // 4. Reconcile Variants if provided
+    if (Array.isArray(variants)) {
+      const { data: existingVars } = await supabase
+        .from('product_variants')
+        .select('*')
+        .eq('product_id', id);
 
-    // 4. Record Audit Log
+      const existingMap = new Map((existingVars || []).map((v) => [v.id, v]));
+      const submittedVariantIds = new Set<string>();
+
+      for (let idx = 0; idx < variants.length; idx++) {
+        const v = variants[idx];
+        const vPayload = {
+          product_id: id,
+          sku: String(v.sku || `${(updates.slug || id).toString().toUpperCase().slice(0, 8)}-${idx + 1}`).trim(),
+          title: String(v.title || `${v.material || 'PLA'} / ${v.color || 'Standard'}`).trim(),
+          material: String(v.material || 'PLA').trim(),
+          color: String(v.color || 'Standard').trim(),
+          finish: String(v.finish || 'Raw (Layered)').trim(),
+          price_adjustment_paise: Number.isInteger(Number(v.priceAdjustmentPaise)) ? Number(v.priceAdjustmentPaise) : 0,
+          stock_quantity: Math.max(0, parseInt(String(v.stockQuantity ?? 0), 10) || 0),
+          lead_time_days: Math.max(0, parseInt(String(v.leadTimeDays ?? 0), 10) || 0),
+          dimensions: v.dimensions || { length_mm: 100, width_mm: 100, height_mm: 100 },
+          weight_grams: Math.max(0, Number(v.weightGrams ?? 100)),
+          is_active: v.isActive !== false,
+          updated_at: new Date().toISOString(),
+        };
+
+        if (v.id && existingMap.has(v.id)) {
+          submittedVariantIds.add(v.id);
+          await supabase
+            .from('product_variants')
+            .update(vPayload)
+            .eq('id', v.id);
+        } else {
+          // Check if SKU already exists for this product
+          const matchingBySku = (existingVars || []).find((ev) => ev.sku === vPayload.sku);
+          if (matchingBySku) {
+            submittedVariantIds.add(matchingBySku.id);
+            await supabase
+              .from('product_variants')
+              .update(vPayload)
+              .eq('id', matchingBySku.id);
+          } else {
+            const { data: insertedVar } = await supabase
+              .from('product_variants')
+              .insert(vPayload)
+              .select('id')
+              .single();
+            if (insertedVar) submittedVariantIds.add(insertedVar.id);
+          }
+        }
+      }
+
+      // Remove variants no longer present in the submitted payload
+      for (const existingVar of existingVars || []) {
+        if (!submittedVariantIds.has(existingVar.id)) {
+          await supabase
+            .from('product_variants')
+            .delete()
+            .eq('id', existingVar.id);
+        }
+      }
+    }
+
+    // Fetch refreshed product with all reconciled variants
+    const { data: refreshedProduct } = await supabase
+      .from('products')
+      .select('*, product_variants(*)')
+      .eq('id', id)
+      .single();
+
+    const finalProduct = refreshedProduct || updatedProducts[0];
+
+    // 5. Record Audit Log
     await recordAuditLog({
       staffUserId: auth.user.id,
       staffName: auth.profile.full_name,
@@ -140,12 +213,17 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       entityType: 'product',
       entityId: id,
       oldState: { lastKnownUpdatedAt },
-      newState: { name: updatedProduct.name, basePricePaise: updatedProduct.base_price_paise, updatedAt: updatedProduct.updated_at },
-      notes: `Updated product '${updatedProduct.name}'`,
+      newState: { 
+        name: finalProduct.name, 
+        basePricePaise: finalProduct.base_price_paise, 
+        updatedAt: finalProduct.updated_at,
+        variantCount: (finalProduct.product_variants || []).length,
+      },
+      notes: `Updated product '${finalProduct.name}'`,
       ipAddress: request.headers.get('x-forwarded-for') || undefined,
     });
 
-    return NextResponse.json({ success: true, product: serializeProductFromDb(updatedProduct) });
+    return NextResponse.json({ success: true, product: serializeProductFromDb(finalProduct) });
   } catch (err: unknown) {
     console.error('PUT /api/products/[id] error:', err);
     const message = err instanceof Error ? err.message : 'Failed to update product';

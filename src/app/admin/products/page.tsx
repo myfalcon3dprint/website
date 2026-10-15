@@ -8,7 +8,8 @@ import { Product } from '@/lib/types';
 import { 
   Layers, Search, CheckCircle2, AlertCircle, Plus, 
   Minus, ShieldAlert, Sparkles, Tag, Package, RefreshCw,
-  ChevronLeft, ChevronRight, Edit3, Trash2, Upload, X, Image as ImageIcon
+  ChevronLeft, ChevronRight, Edit3, Trash2, Upload, X, Image as ImageIcon,
+  Eye, EyeOff
 } from 'lucide-react';
 
 interface CategoryItem {
@@ -18,6 +19,7 @@ interface CategoryItem {
 }
 
 interface NewVariantInput {
+  id?: string;
   sku: string;
   title: string;
   material: string;
@@ -72,8 +74,12 @@ export default function AdminProductsPage() {
   const [formVariants, setFormVariants] = useState<NewVariantInput[]>([
     { sku: '', title: 'Matte Black', material: 'PLA', color: 'Black', finish: 'Matte (Layered)', priceAdjustmentPaise: 0, stockQuantity: 10, leadTimeDays: 0 },
   ]);
+  const [formIsPublished, setFormIsPublished] = useState(true);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [replacingImageIndex, setReplacingImageIndex] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const replaceFileInputRef = useRef<HTMLInputElement>(null);
   const canEditCatalog = ['owner', 'catalog_editor'].includes(staffRole);
 
   const fetchCategories = useCallback(async () => {
@@ -231,6 +237,74 @@ export default function AdminProductsPage() {
     }
   };
 
+  // Media Replacement Handler
+  const handleReplaceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || replacingImageIndex === null) return;
+
+    setUploadingImage(true);
+    setUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('category', 'products');
+
+      const res = await fetch('/api/admin/media/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Upload failed');
+      }
+
+      const data = await res.json();
+      if (data.uploadUrl) {
+        const directUploadRes = await fetch(data.uploadUrl, {
+          method: 'PUT',
+          body: file,
+          headers: { 'Content-Type': file.type || 'image/jpeg' },
+        });
+        if (!directUploadRes.ok) {
+          throw new Error(`Direct storage upload failed with status ${directUploadRes.status}`);
+        }
+      }
+
+      if (data.publicUrl) {
+        setFormImages((prev) => {
+          const next = [...prev];
+          next[replacingImageIndex] = data.publicUrl;
+          return next;
+        });
+      }
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : 'Replacement upload failed');
+    } finally {
+      setUploadingImage(false);
+      setReplacingImageIndex(null);
+      if (replaceFileInputRef.current) replaceFileInputRef.current.value = '';
+    }
+  };
+
+  // Reorder Images
+  const moveImage = (index: number, direction: 'left' | 'right') => {
+    setFormImages((prev) => {
+      const next = [...prev];
+      const targetIdx = direction === 'left' ? index - 1 : index + 1;
+      if (targetIdx < 0 || targetIdx >= next.length) return prev;
+      const temp = next[index];
+      next[index] = next[targetIdx];
+      next[targetIdx] = temp;
+      return next;
+    });
+  };
+
+  // Remove Image
+  const removeImage = (index: number) => {
+    setFormImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
   // Open Create Modal
   const openCreateModal = () => {
     setFormName('');
@@ -240,6 +314,7 @@ export default function AdminProductsPage() {
     setFormDesc('');
     setFormBasePriceINR('499');
     setFormAvailability('in_stock');
+    setFormIsPublished(true);
     setFormImages([]);
     setFormVariants([
       { sku: '', title: 'Matte Black', material: 'PLA', color: 'Black', finish: 'Matte (Layered)', priceAdjustmentPaise: 0, stockQuantity: 10, leadTimeDays: 0 },
@@ -257,12 +332,30 @@ export default function AdminProductsPage() {
     setEditingProduct(p);
     setFormName(p.title);
     setFormSlug(p.slug);
-    setFormCategoryId('');
+    setFormCategoryId(p.categoryId || '');
     setFormShortDesc(p.subtitle);
     setFormDesc(p.description);
     setFormBasePriceINR((p.basePricePaise / 100).toString());
     setFormAvailability(p.stockType === 'ready_stock' ? 'in_stock' : 'made_to_order');
+    setFormIsPublished(p.isPublished ?? true);
     setFormImages(p.images || []);
+    setFormVariants(
+      p.variants && p.variants.length > 0
+        ? p.variants.map((v) => ({
+            id: v.id,
+            sku: v.sku,
+            title: v.title,
+            material: v.material || 'PLA',
+            color: v.color || 'Standard',
+            finish: v.finish || 'Matte (Layered)',
+            priceAdjustmentPaise: v.priceAdjustmentPaise || 0,
+            stockQuantity: v.stockQuantity ?? 10,
+            leadTimeDays: v.leadTimeDays ?? 0,
+          }))
+        : [
+            { sku: `${p.slug.toUpperCase().slice(0, 8)}-1`, title: 'Standard', material: 'PLA', color: 'Black', finish: 'Matte (Layered)', priceAdjustmentPaise: 0, stockQuantity: 10, leadTimeDays: 0 },
+          ]
+    );
     setConflictProduct(null);
     setConflictMessage(null);
     setSaveSuccessNote(null);
@@ -323,6 +416,7 @@ export default function AdminProductsPage() {
           description: formDesc,
           basePricePaise,
           availability: formAvailability,
+          isPublished: formIsPublished,
           images: formImages,
           variants: formVariants,
         }),
@@ -364,11 +458,14 @@ export default function AdminProductsPage() {
         body: JSON.stringify({
           name: formName,
           slug: formSlug,
+          categoryId: formCategoryId || undefined,
           shortDescription: formShortDesc,
           description: formDesc,
           basePricePaise,
           availability: formAvailability,
+          isPublished: formIsPublished,
           images: formImages,
+          variants: formVariants,
           expectedVersion,
           lastKnownUpdatedAt: versionToUse,
         }),
@@ -393,6 +490,22 @@ export default function AdminProductsPage() {
       if (updated) {
         // Refresh editingProduct version in memory so sequential saves succeed without reload
         setEditingProduct(updated);
+        setFormIsPublished(updated.isPublished ?? true);
+        if (updated.variants && updated.variants.length > 0) {
+          setFormVariants(
+            updated.variants.map((v) => ({
+              id: v.id,
+              sku: v.sku,
+              title: v.title,
+              material: v.material || 'PLA',
+              color: v.color || 'Standard',
+              finish: v.finish || 'Matte (Layered)',
+              priceAdjustmentPaise: v.priceAdjustmentPaise || 0,
+              stockQuantity: v.stockQuantity ?? 10,
+              leadTimeDays: v.leadTimeDays ?? 0,
+            }))
+          );
+        }
         // Refresh catalog list in memory
         setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       }
@@ -404,6 +517,32 @@ export default function AdminProductsPage() {
       setEditError(err instanceof Error ? err.message : 'Failed to update product');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Toggle Live/Archived Publishing State
+  const handleTogglePublish = async (p: Product) => {
+    if (!canEditCatalog) return;
+    try {
+      const targetStatus = !p.isPublished;
+      const res = await fetch(`/api/products/${p.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isPublished: targetStatus,
+          expectedVersion: p.version,
+          lastKnownUpdatedAt: p.updatedAt,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to toggle publishing status');
+      }
+      const data = await res.json();
+      setProducts((prev) => prev.map((item) => (item.id === p.id ? data.product : item)));
+      setStockUpdatedNote(`Product '${p.title}' is now ${targetStatus ? 'Published' : 'Archived'}.`);
+    } catch (err: unknown) {
+      alert(`Publishing toggle error: ${err instanceof Error ? err.message : 'Failed'}`);
     }
   };
 
@@ -618,9 +757,20 @@ export default function AdminProductsPage() {
                     <span style={{ fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--accent-primary)' }}>
                       {p.category}
                     </span>
-                    <h3 style={{ fontSize: '1.05rem', fontWeight: 600, margin: '2px 0 2px', color: 'var(--text-primary)' }}>
-                      {p.title}
-                    </h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '2px 0' }}>
+                      <h3 style={{ fontSize: '1.05rem', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>
+                        {p.title}
+                      </h3>
+                      {p.isPublished ? (
+                        <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#10B981', background: 'rgba(16, 185, 129, 0.1)', padding: '1px 6px', borderRadius: '4px' }}>
+                          Live
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#94A3B8', background: 'rgba(148, 163, 184, 0.1)', padding: '1px 6px', borderRadius: '4px' }}>
+                          Archived
+                        </span>
+                      )}
+                    </div>
                     <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
                       Base: {formatINR(p.basePricePaise)}
                     </span>
@@ -630,6 +780,14 @@ export default function AdminProductsPage() {
                 <div style={{ display: 'flex', gap: '6px' }}>
                   {canEditCatalog && (
                     <>
+                      <button
+                        onClick={() => handleTogglePublish(p)}
+                        className="btn btn-outline"
+                        style={{ padding: '6px 8px', fontSize: '0.75rem', color: p.isPublished ? '#10B981' : 'var(--text-secondary)' }}
+                        title={p.isPublished ? "Click to archive (unpublish)" : "Click to publish (make live)"}
+                      >
+                        {p.isPublished ? <Eye size={13} /> : <EyeOff size={13} />}
+                      </button>
                       <button
                         onClick={() => openEditModal(p)}
                         className="btn btn-outline"
@@ -945,6 +1103,38 @@ export default function AdminProductsPage() {
                   </div>
                 </div>
 
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                      Category
+                    </label>
+                    <select
+                      value={formCategoryId}
+                      onChange={(e) => setFormCategoryId(e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-decor)', background: 'var(--surface-raised)', color: 'var(--text-primary)' }}
+                    >
+                      <option value="">No Category</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                      Publishing Status
+                    </label>
+                    <select
+                      value={formIsPublished ? 'published' : 'archived'}
+                      onChange={(e) => setFormIsPublished(e.target.value === 'published')}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-decor)', background: 'var(--surface-raised)', color: 'var(--text-primary)' }}
+                    >
+                      <option value="published">Published (Live on Catalog)</option>
+                      <option value="archived">Archived (Draft / Unpublished)</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' }}>
                     Short Subtitle
@@ -969,16 +1159,23 @@ export default function AdminProductsPage() {
                   />
                 </div>
 
-                {/* Media Upload */}
-                <div>
+                {/* Media Management: Upload, Preview, Reorder, Replace, Remove */}
+                <div style={{ borderTop: '1px solid var(--border-decor)', paddingTop: '16px' }}>
                   <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' }}>
-                    Product Media & Studio Photos
+                    Product Media & Studio Photos ({formImages.length})
                   </label>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                     <input
                       type="file"
                       ref={fileInputRef}
                       onChange={handleFileUpload}
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                    />
+                    <input
+                      type="file"
+                      ref={replaceFileInputRef}
+                      onChange={handleReplaceUpload}
                       accept="image/*"
                       style={{ display: 'none' }}
                     />
@@ -989,10 +1186,10 @@ export default function AdminProductsPage() {
                       className="btn btn-outline"
                       style={{ padding: '6px 12px', fontSize: '0.8125rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                     >
-                      <Upload size={14} /> {uploadingImage ? 'Uploading...' : 'Upload Image'}
+                      <Upload size={14} /> {uploadingImage ? 'Uploading...' : 'Upload New Image'}
                     </button>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      {formImages.length} image(s) attached
+                      Click image thumbnail to preview. Use arrows to reorder, ⇄ to replace, × to remove.
                     </span>
                     {uploadError && (
                       <span style={{ fontSize: '0.75rem', color: '#ef4444' }}>
@@ -1002,29 +1199,258 @@ export default function AdminProductsPage() {
                   </div>
 
                   {formImages.length > 0 && (
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '12px', marginTop: '12px', flexWrap: 'wrap' }}>
                       {formImages.map((img, idx) => (
-                        <div key={idx} style={{ position: 'relative', width: '56px', height: '56px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-decor)', background: 'var(--surface-raised)' }}>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={img}
-                            alt="Product"
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            onError={(e) => {
-                              (e.currentTarget as HTMLElement).style.opacity = '0.3';
+                        <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                          <div 
+                            style={{ 
+                              position: 'relative', 
+                              width: '72px', 
+                              height: '72px', 
+                              borderRadius: '4px', 
+                              overflow: 'hidden', 
+                              border: '1px solid var(--border-decor)', 
+                              background: 'var(--surface-raised)',
+                              cursor: 'pointer',
                             }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setFormImages((prev) => prev.filter((_, i) => i !== idx))}
-                            style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(0,0,0,0.7)', border: 'none', color: '#fff', borderRadius: '50%', width: '16px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                            onClick={() => setPreviewImageUrl(img)}
+                            title="Click to preview enlarged photo"
                           >
-                            ×
-                          </button>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={img}
+                              alt={`Photo ${idx + 1}`}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              onError={(e) => {
+                                (e.currentTarget as HTMLElement).style.opacity = '0.3';
+                              }}
+                            />
+                            <div style={{ position: 'absolute', bottom: '2px', left: '2px', background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: '0.65rem', padding: '1px 4px', borderRadius: '2px' }}>
+                              #{idx + 1}
+                            </div>
+                          </div>
+                          {/* Media controls */}
+                          <div style={{ display: 'flex', gap: '2px' }}>
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() => moveImage(idx, 'left')}
+                              className="btn btn-outline"
+                              style={{ padding: '2px 4px', height: '22px', fontSize: '0.7rem' }}
+                              title="Move image left"
+                            >
+                              ←
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReplacingImageIndex(idx);
+                                replaceFileInputRef.current?.click();
+                              }}
+                              className="btn btn-outline"
+                              style={{ padding: '2px 4px', height: '22px', fontSize: '0.7rem' }}
+                              title="Replace image with new file"
+                            >
+                              ⇄
+                            </button>
+                            <button
+                              type="button"
+                              disabled={idx === formImages.length - 1}
+                              onClick={() => moveImage(idx, 'right')}
+                              className="btn btn-outline"
+                              style={{ padding: '2px 4px', height: '22px', fontSize: '0.7rem' }}
+                              title="Move image right"
+                            >
+                              →
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeImage(idx)}
+                              className="btn btn-outline"
+                              style={{ padding: '2px 4px', height: '22px', fontSize: '0.7rem', color: 'var(--danger)' }}
+                              title="Remove image"
+                            >
+                              ×
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
                   )}
+                </div>
+
+                {/* Variant Management Section */}
+                <div style={{ borderTop: '1px solid var(--border-decor)', paddingTop: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <div>
+                      <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        Product Variants & Stock ({formVariants.length})
+                      </span>
+                      <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Configure unique SKUs, price adjustments, inventory stock, materials, and colors.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextIdx = formVariants.length + 1;
+                        const slugPrefix = (formSlug || formName.toLowerCase().replace(/[^a-z0-9]+/g, '-')).toUpperCase().slice(0, 8);
+                        setFormVariants((prev) => [
+                          ...prev,
+                          {
+                            sku: `${slugPrefix}-${nextIdx}`,
+                            title: 'Silk White',
+                            material: 'PLA',
+                            color: 'White',
+                            finish: 'Silk Gloss',
+                            priceAdjustmentPaise: 0,
+                            stockQuantity: 10,
+                            leadTimeDays: 0,
+                          },
+                        ]);
+                      }}
+                      className="btn btn-outline"
+                      style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <Plus size={12} /> Add Variant
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {formVariants.map((v, vIdx) => (
+                      <div
+                        key={vIdx}
+                        style={{
+                          background: 'var(--surface-raised)',
+                          border: '1px solid var(--border-decor)',
+                          borderRadius: 'var(--radius-sm)',
+                          padding: '12px',
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr)) 32px',
+                          gap: '8px',
+                          alignItems: 'end',
+                        }}
+                      >
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                            SKU *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={v.sku}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setFormVariants((prev) => prev.map((item, i) => i === vIdx ? { ...item, sku: val } : item));
+                            }}
+                            style={{ width: '100%', padding: '4px 6px', fontSize: '0.75rem', borderRadius: '3px', border: '1px solid var(--border-decor)', background: 'var(--surface-card)', color: 'var(--text-primary)', fontFamily: 'monospace' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                            Title
+                          </label>
+                          <input
+                            type="text"
+                            value={v.title}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setFormVariants((prev) => prev.map((item, i) => i === vIdx ? { ...item, title: val } : item));
+                            }}
+                            style={{ width: '100%', padding: '4px 6px', fontSize: '0.75rem', borderRadius: '3px', border: '1px solid var(--border-decor)', background: 'var(--surface-card)', color: 'var(--text-primary)' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                            Material
+                          </label>
+                          <select
+                            value={v.material}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setFormVariants((prev) => prev.map((item, i) => i === vIdx ? { ...item, material: val } : item));
+                            }}
+                            style={{ width: '100%', padding: '4px 6px', fontSize: '0.75rem', borderRadius: '3px', border: '1px solid var(--border-decor)', background: 'var(--surface-card)', color: 'var(--text-primary)' }}
+                          >
+                            <option value="PLA">PLA</option>
+                            <option value="PETG">PETG</option>
+                            <option value="ABS">ABS</option>
+                            <option value="Resin">Resin</option>
+                            <option value="TPU">TPU (Flexible)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                            Color
+                          </label>
+                          <input
+                            type="text"
+                            value={v.color}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setFormVariants((prev) => prev.map((item, i) => i === vIdx ? { ...item, color: val } : item));
+                            }}
+                            style={{ width: '100%', padding: '4px 6px', fontSize: '0.75rem', borderRadius: '3px', border: '1px solid var(--border-decor)', background: 'var(--surface-card)', color: 'var(--text-primary)' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                            Finish
+                          </label>
+                          <input
+                            type="text"
+                            value={v.finish}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setFormVariants((prev) => prev.map((item, i) => i === vIdx ? { ...item, finish: val } : item));
+                            }}
+                            style={{ width: '100%', padding: '4px 6px', fontSize: '0.75rem', borderRadius: '3px', border: '1px solid var(--border-decor)', background: 'var(--surface-card)', color: 'var(--text-primary)' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                            Price Adj (₹)
+                          </label>
+                          <input
+                            type="number"
+                            value={(v.priceAdjustmentPaise / 100).toString()}
+                            onChange={(e) => {
+                              const val = Math.round((parseFloat(e.target.value) || 0) * 100);
+                              setFormVariants((prev) => prev.map((item, i) => i === vIdx ? { ...item, priceAdjustmentPaise: val } : item));
+                            }}
+                            style={{ width: '100%', padding: '4px 6px', fontSize: '0.75rem', borderRadius: '3px', border: '1px solid var(--border-decor)', background: 'var(--surface-card)', color: 'var(--text-primary)' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                            Stock Qty
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={v.stockQuantity.toString()}
+                            onChange={(e) => {
+                              const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                              setFormVariants((prev) => prev.map((item, i) => i === vIdx ? { ...item, stockQuantity: val } : item));
+                            }}
+                            style={{ width: '100%', padding: '4px 6px', fontSize: '0.75rem', borderRadius: '3px', border: '1px solid var(--border-decor)', background: 'var(--surface-card)', color: 'var(--text-primary)' }}
+                          />
+                        </div>
+                        <div>
+                          <button
+                            type="button"
+                            disabled={formVariants.length <= 1}
+                            onClick={() => setFormVariants((prev) => prev.filter((_, i) => i !== vIdx))}
+                            className="btn btn-outline"
+                            style={{ padding: '4px', height: '28px', width: '28px', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            title="Remove variant"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
@@ -1047,6 +1473,60 @@ export default function AdminProductsPage() {
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Image Full Size Preview Modal */}
+      {previewImageUrl && (
+        <div
+          onClick={() => setPreviewImageUrl(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.85)',
+            backdropFilter: 'blur(6px)',
+            zIndex: 2000,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+          }}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            style={{ 
+              maxWidth: '800px', 
+              maxHeight: '80vh', 
+              background: 'var(--surface-card)', 
+              border: '1px solid var(--border-decor)', 
+              borderRadius: '8px', 
+              overflow: 'hidden', 
+              display: 'flex', 
+              flexDirection: 'column' 
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--border-decor)' }}>
+              <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Media Asset Preview</span>
+              <button 
+                onClick={() => setPreviewImageUrl(null)} 
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#0a0a0a' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={previewImageUrl}
+                alt="Enlarged media preview"
+                style={{ maxWidth: '100%', maxHeight: '65vh', objectFit: 'contain' }}
+              />
+            </div>
+            <div style={{ padding: '10px 16px', fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'var(--surface-raised)', wordBreak: 'break-all' }}>
+              {previewImageUrl}
+            </div>
           </div>
         </div>
       )}

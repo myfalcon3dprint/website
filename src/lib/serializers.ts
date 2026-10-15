@@ -143,6 +143,9 @@ export function serializeProductFromDb(p: Record<string, unknown>): Product {
     title: String(p.name || p.title || 'Studio Product'),
     subtitle: String(p.short_description || p.subtitle || ''),
     category: (p.category_name as Product['category']) || (p.category as Product['category']) || 'Planters & Decor',
+    categoryId: p.category_id ? String(p.category_id) : p.categoryId ? String(p.categoryId) : undefined,
+    isPublished: p.is_published !== undefined ? Boolean(p.is_published) : p.isPublished !== undefined ? Boolean(p.isPublished) : true,
+    archivedAt: p.deleted_at ? String(p.deleted_at) : p.archivedAt ? String(p.archivedAt) : null,
     description: String(p.description || ''),
     features: Array.isArray(p.features) ? p.features.map(String) : [],
     specs: {
@@ -177,6 +180,7 @@ export function serializeVariantFromDb(v: Record<string, unknown>, basePricePais
     color: String(v.color || 'Standard'),
     finish: (v.finish as FinishType) || 'Raw (Layered)',
     pricePaise: explicitPrice !== undefined ? explicitPrice : (basePricePaise + adjustment),
+    priceAdjustmentPaise: adjustment,
     dimensions: {
       lengthMm: Number(dims.lengthMm ?? dims.length_mm ?? 100),
       widthMm: Number(dims.widthMm ?? dims.width_mm ?? 100),

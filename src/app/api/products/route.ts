@@ -145,7 +145,12 @@ export async function POST(request: NextRequest) {
         .insert(variantPayloads)
         .select();
 
-      if (!varErr && vars) {
+      if (varErr) {
+        await supabase.from('products').delete().eq('id', newProduct.id);
+        return NextResponse.json({ error: varErr.message || 'Failed to insert product variants' }, { status: 400 });
+      }
+
+      if (vars) {
         insertedVariants.push(...vars);
       }
     }

@@ -12,6 +12,7 @@ export interface ProductVariant {
   color: string;
   finish: FinishType;
   pricePaise: number; // Integer minor units (e.g. 149900 = ₹1,499.00)
+  priceAdjustmentPaise?: number;
   dimensions: { lengthMm: number; widthMm: number; heightMm: number };
   weightGrams: number;
   stockQuantity: number;
@@ -26,6 +27,9 @@ export interface Product {
   title: string;
   subtitle: string;
   category: 'Miniatures & Collectibles' | 'Desk Accessories' | 'Planters & Decor' | 'Architectural Models' | 'Kitchen Miniatures';
+  categoryId?: string;
+  isPublished?: boolean;
+  archivedAt?: string | null;
   description: string;
   features: string[];
   specs: {
@@ -66,7 +70,13 @@ export type OrderStatus =
   | 'delivered'
   | 'cancelled';
 
-export type PaymentStatus = 'pending' | 'captured' | 'failed' | 'refunded';
+export type PaymentStatus =
+  | 'pending'
+  | 'captured'
+  | 'failed'
+  | 'refunded'
+  | 'additional_payment_due'
+  | 'refund_due_pending_approval';
 
 export interface OrderItem {
   id: string;

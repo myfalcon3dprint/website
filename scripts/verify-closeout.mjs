@@ -120,6 +120,7 @@ async function run() {
   console.log(`\n${BOLD}2. Staff Invitation Procedure Verification${RESET}`);
 
   const inviteToken = 'tok_test_staff_' + Date.now();
+  await supabase.from('staff_invitations').delete().eq('email', targetStaffEmail);
   await supabase.from('staff_invitations').insert({
     email: targetStaffEmail,
     role: 'catalog_editor',

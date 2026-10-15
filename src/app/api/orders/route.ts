@@ -25,10 +25,42 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const search = searchParams.get('search')?.trim();
     const sku = searchParams.get('sku')?.trim();
+    const product = searchParams.get('product')?.trim();
+
+    // Query order_items to resolve SKU and product filter matches across multi-item orders
+    let matchedOrderIds: string[] | null = null;
+    if (sku || product) {
+      let itemQuery = supabase.from('order_items').select('order_id');
+      if (sku) {
+        itemQuery = itemQuery.ilike('variant_sku', `%${sku}%`);
+      }
+      if (product) {
+        itemQuery = itemQuery.or(`product_title.ilike.%${product}%,variant_sku.ilike.%${product}%`);
+      }
+      const { data: matchedRows } = await itemQuery;
+      matchedOrderIds = Array.from(new Set((matchedRows || []).map((r) => r.order_id)));
+
+      if (matchedOrderIds.length === 0) {
+        return NextResponse.json({
+          orders: [],
+          pagination: {
+            page,
+            limit,
+            totalCount: 0,
+            totalPages: 0,
+          },
+          isLiveDb: true,
+        });
+      }
+    }
 
     let query = supabase
       .from('orders')
       .select('*, order_items(*)', { count: 'exact' });
+
+    if (matchedOrderIds !== null) {
+      query = query.in('id', matchedOrderIds);
+    }
 
     // Customer Isolation: If caller is not staff, restrict to their own orders only
     if (!session.isStaff) {
@@ -45,9 +77,21 @@ export async function GET(request: NextRequest) {
       }
 
       if (search) {
-        query = query.or(
-          `order_number.ilike.%${search}%,customer_name.ilike.%${search}%,customer_email.ilike.%${search}%,customer_phone.ilike.%${search}%`
-        );
+        const { data: searchItemRows } = await supabase
+          .from('order_items')
+          .select('order_id')
+          .or(`product_title.ilike.%${search}%,variant_sku.ilike.%${search}%`);
+        const itemOrderIds = (searchItemRows || []).map((r) => r.order_id);
+
+        if (itemOrderIds.length > 0) {
+          query = query.or(
+            `order_number.ilike.%${search}%,customer_name.ilike.%${search}%,customer_email.ilike.%${search}%,customer_phone.ilike.%${search}%,id.in.(${itemOrderIds.join(',')})`
+          );
+        } else {
+          query = query.or(
+            `order_number.ilike.%${search}%,customer_name.ilike.%${search}%,customer_email.ilike.%${search}%,customer_phone.ilike.%${search}%`
+          );
+        }
       }
     }
 
@@ -64,16 +108,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    let orders: Order[] = (data || []).map((row) => serializeOrderFromDb(row));
-
-    // Optional SKU filter in memory if specified
-    if (sku) {
-      const lowerSku = sku.toLowerCase();
-      orders = orders.filter((o) =>
-        o.items.some((i) => i.variantSku.toLowerCase().includes(lowerSku))
-      );
-    }
-
+    const orders: Order[] = (data || []).map((row) => serializeOrderFromDb(row));
     const totalCount = count ?? orders.length;
     const totalPages = Math.ceil(totalCount / limit);
 

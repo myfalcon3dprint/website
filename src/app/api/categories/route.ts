@@ -1,18 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient, verifyStaffSession, recordAuditLog } from '@/lib/supabase/server';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const supabase = getSupabaseAdminClient();
   if (!supabase) {
     return NextResponse.json({ error: 'Database service unavailable' }, { status: 500 });
   }
 
   try {
-    const { data: categories, error } = await supabase
+    const { searchParams } = new URL(request.url);
+    const includeAll = searchParams.get('all') === 'true';
+
+    let query = supabase
       .from('categories')
       .select('*')
-      .eq('is_active', true)
       .order('sort_order', { ascending: true });
+
+    if (!includeAll) {
+      query = query.eq('is_active', true);
+    }
+
+    const { data: categories, error } = await query;
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
