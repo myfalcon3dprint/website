@@ -59,16 +59,17 @@
 
   /* Elevation */
   --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
   --shadow-elevated: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 10px 24px -3px rgba(0, 0, 0, 0.04);
-  --shadow-dropdown: 0 10px 30px -4px rgba(0, 0, 0, 0.08);
+  --shadow-dropdown: 0 10px 30px -4px rgba(0, 0, 0, 0.09);
 
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
   --transition-normal: 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 350ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Base Reset */
+/* ─── Base Reset ───────────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -82,6 +83,7 @@ html {
   scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -94,7 +96,26 @@ body {
   overflow-x: hidden;
 }
 
-/* Reduced Motion Override */
+/* ─── Skip to Content (Accessibility) ─────────────────────── */
+.skip-to-content {
+  position: absolute;
+  top: -100px;
+  left: 1rem;
+  z-index: 9999;
+  background: var(--action-primary);
+  color: var(--action-primary-text);
+  padding: 0.6rem 1.1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top var(--transition-fast);
+}
+.skip-to-content:focus {
+  top: 1rem;
+}
+
+/* ─── Reduced Motion ───────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -104,7 +125,7 @@ body {
   }
 }
 
-/* Typography Hierarchy */
+/* ─── Typography Hierarchy ─────────────────────────────────── */
 h1, h2, h3, h4, h5, h6 {
   font-family: 'Plus Jakarta Sans', sans-serif;
   color: var(--text-primary);
@@ -114,18 +135,18 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 h1 {
-  font-size: clamp(2rem, 3.5vw, 2.75rem);
+  font-size: clamp(1.75rem, 3.5vw, 2.75rem);
   letter-spacing: -0.03em;
   font-weight: 800;
 }
 
 h2 {
-  font-size: clamp(1.4rem, 2.4vw, 1.85rem);
+  font-size: clamp(1.3rem, 2.4vw, 1.85rem);
   letter-spacing: -0.025em;
 }
 
 h3 {
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   letter-spacing: -0.015em;
   font-weight: 600;
 }
@@ -134,12 +155,37 @@ p {
   color: var(--text-secondary);
 }
 
+/* ─── Inline Code ──────────────────────────────────────────── */
+code {
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+  font-size: 0.875em;
+  background: var(--surface-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 0.1em 0.4em;
+  color: var(--brand-accent);
+  font-weight: 500;
+}
+
+/* ─── Links ────────────────────────────────────────────────── */
 a, a:visited {
   color: inherit;
   text-decoration: none;
   transition: color var(--transition-fast);
 }
 
+a:hover {
+  color: var(--text-primary);
+}
+
+/* ─── Global Focus Ring (Accessibility) ────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+/* ─── Buttons ──────────────────────────────────────────────── */
 button {
   cursor: pointer;
   border: none;
@@ -148,7 +194,7 @@ button {
   font-size: inherit;
 }
 
-/* Layout Utilities */
+/* ─── Layout Utilities ─────────────────────────────────────── */
 .container {
   width: 100%;
   max-width: 1240px;
@@ -156,7 +202,63 @@ button {
   padding: 0 1.5rem;
 }
 
-/* Design Studio Cards */
+@media (max-width: 480px) {
+  .container {
+    padding: 0 1rem;
+  }
+}
+
+/* ─── Nav Link Hover ───────────────────────────────────────── */
+.nav-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 0.25rem 0;
+  transition: color var(--transition-fast);
+}
+
+.nav-link::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--brand-accent);
+  border-radius: 1px;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--transition-normal);
+}
+
+.nav-link:hover {
+  color: var(--text-primary);
+}
+
+.nav-link:hover::after,
+.nav-link.active::after {
+  transform: scaleX(1);
+}
+
+.nav-link.active {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ─── Footer Link Hover ────────────────────────────────────── */
+footer a {
+  transition: color var(--transition-fast);
+}
+
+footer a:hover {
+  color: var(--text-primary);
+}
+
+/* ─── Design Studio Cards ──────────────────────────────────── */
 .card, .falcon-card {
   background: var(--surface);
   border: 1px solid var(--border-subtle);
@@ -178,16 +280,16 @@ button {
 
 .product-card-lift:hover {
   border-color: #BDBDB5 !important;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.05) !important;
-  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06) !important;
+  transform: translateY(-3px);
 }
 
 .product-card-lift img {
-  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform var(--transition-slow);
 }
 
 .product-card-lift:hover img {
-  transform: scale(1.02);
+  transform: scale(1.03);
 }
 
 .card-glow {
@@ -197,7 +299,35 @@ button {
   box-shadow: var(--shadow-subtle);
 }
 
-/* Buttons */
+/* ─── Category Cards ───────────────────────────────────────── */
+.category-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 140px;
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-subtle);
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal), transform var(--transition-normal), background var(--transition-fast);
+  text-decoration: none;
+  color: inherit;
+}
+
+.category-card:hover {
+  border-color: var(--border-control);
+  box-shadow: var(--shadow-card);
+  transform: translateY(-2px);
+  background: var(--surface-alt);
+}
+
+.category-card:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
+}
+
+/* ─── Buttons ──────────────────────────────────────────────── */
 .btn, .btn-primary {
   display: inline-flex;
   align-items: center;
@@ -211,7 +341,7 @@ button {
   padding: 0.7rem 1.25rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--action-primary);
-  transition: background-color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
   white-space: nowrap;
 }
 
@@ -224,10 +354,17 @@ button {
   border-color: var(--action-primary-hover);
   color: var(--action-primary-text) !important;
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .btn:active, .btn-primary:active {
   transform: translateY(0);
+  box-shadow: none;
+}
+
+.btn:focus-visible, .btn-primary:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
 }
 
 .btn-accent {
@@ -242,13 +379,19 @@ button {
   padding: 0.7rem 1.25rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--action-accent);
-  transition: background-color var(--transition-fast), transform var(--transition-fast);
+  transition: background-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .btn-accent:hover {
   background: var(--action-accent-hover);
   border-color: var(--action-accent-hover);
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(181, 71, 8, 0.2);
+}
+
+.btn-accent:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
 }
 
 .btn-secondary, .btn-outline {
@@ -264,7 +407,7 @@ button {
   padding: 0.7rem 1.25rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
-  transition: background-color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .btn-secondary:visited, .btn-outline:visited {
@@ -276,6 +419,12 @@ button {
   border-color: var(--border-control);
   color: var(--text-primary) !important;
   transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.btn-secondary:focus-visible, .btn-outline:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
 }
 
 .btn-ghost {
@@ -295,7 +444,38 @@ button {
   background: var(--surface-alt);
 }
 
-/* Forms & Inputs */
+.btn-ghost:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
+}
+
+/* ─── Icon Button ──────────────────────────────────────────── */
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  color: var(--text-secondary);
+  transition: border-color var(--transition-fast), color var(--transition-fast), background-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.btn-icon:hover {
+  border-color: var(--border-control);
+  color: var(--text-primary);
+  background: var(--surface-alt);
+  box-shadow: var(--shadow-subtle);
+}
+
+.btn-icon:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
+}
+
+/* ─── Forms & Inputs ───────────────────────────────────────── */
 .input, .form-input, .form-select, .form-textarea {
   width: 100%;
   background: var(--surface);
@@ -308,27 +488,32 @@ button {
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
+.input:hover:not(:focus), .form-input:hover:not(:focus) {
+  border-color: var(--border-focus);
+}
+
 .input:focus, .form-input:focus, .form-select:focus, .form-textarea:focus {
   outline: none;
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 1px var(--border-focus);
+  box-shadow: 0 0 0 2px rgba(24, 24, 24, 0.08);
 }
 
-.input::placeholder, .form-input::placeholder {
+.input::placeholder, .form-input::placeholder, .form-textarea::placeholder {
   color: var(--text-muted);
 }
 
-/* Semantic Badges */
+/* ─── Semantic Badges ──────────────────────────────────────── */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.75rem;
+  font-size: 0.73rem;
   font-weight: 600;
-  padding: 0.2rem 0.5rem;
+  padding: 0.2rem 0.55rem;
   border-radius: var(--radius-xs);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
+  line-height: 1;
 }
 
 .badge-ready {
@@ -355,7 +540,39 @@ button {
   border: 1px solid var(--status-danger-border);
 }
 
-/* Responsive Table */
+/* ─── Category Filter Buttons ──────────────────────────────── */
+.filter-chip {
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--radius-xs);
+  font-size: 0.82rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  color: var(--text-secondary);
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.filter-chip:hover {
+  border-color: var(--border-control);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-subtle);
+}
+
+.filter-chip.active {
+  background: var(--action-primary);
+  color: var(--action-primary-text);
+  border-color: var(--action-primary);
+  font-weight: 600;
+}
+
+.filter-chip:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
+}
+
+/* ─── Responsive Table ─────────────────────────────────────── */
 table {
   width: 100%;
   border-collapse: collapse;
@@ -363,10 +580,10 @@ table {
 
 th {
   text-align: left;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-subtle);
   padding: 0.75rem 1rem;
@@ -378,10 +595,71 @@ td {
   font-size: 0.88rem;
 }
 
-/* Scrollbars */
+tr:hover td {
+  background: var(--surface-alt);
+  transition: background var(--transition-fast);
+}
+
+/* ─── Toast / Notification ─────────────────────────────────── */
+.toast-enter {
+  animation: toastSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ─── Loading Skeleton ─────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-alt) 25%, var(--border-subtle) 50%, var(--surface-alt) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+  border-radius: var(--radius-xs);
+}
+
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── Breadcrumb ───────────────────────────────────────────── */
+.breadcrumb-link {
+  color: var(--text-secondary);
+  transition: color var(--transition-fast);
+}
+.breadcrumb-link:hover {
+  color: var(--text-primary);
+}
+
+/* ─── Section Label ────────────────────────────────────────── */
+.section-label {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--brand-accent);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin-bottom: 0.4rem;
+}
+
+/* ─── Divider ──────────────────────────────────────────────── */
+.divider {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 0;
+}
+
+/* ─── Scrollbars ───────────────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -390,9 +668,19 @@ td {
 
 ::-webkit-scrollbar-thumb {
   background: #C4C4BC;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: #A0A096;
+}
+
+/* ─── Print ────────────────────────────────────────────────── */
+@media print {
+  header, footer, .skip-to-content, aside {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
 }

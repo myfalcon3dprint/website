@@ -14,6 +14,7 @@ import {
   Ruler,
   Clock,
   ShieldCheck,
+  Truck,
 } from 'lucide-react';
 
 export default function ProductDetailPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -65,16 +66,15 @@ export default function ProductDetailPage({ params }: { params: Promise<{ slug: 
   return (
     <div className="container" style={{ paddingTop: '2.5rem', paddingBottom: '5rem' }}>
       {/* Breadcrumb Navigation */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '2rem' }}>
-        <Link href="/catalog" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', color: 'var(--text-secondary)' }}>
-          <ChevronLeft size={15} />
-          <span>Catalog</span>
-        </Link>
+      <nav aria-label="Breadcrumb" style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '2rem', flexWrap: 'wrap' }}>
+        <Link href="/" style={{ color: 'var(--text-secondary)' }}>Home</Link>
         <span>/</span>
-        <span style={{ color: 'var(--text-secondary)' }}>{product.category}</span>
+        <Link href="/catalog" style={{ color: 'var(--text-secondary)' }}>Catalog</Link>
+        <span>/</span>
+        <Link href={`/catalog?category=${encodeURIComponent(product.category)}`} style={{ color: 'var(--text-secondary)' }}>{product.category}</Link>
         <span>/</span>
         <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{product.title}</span>
-      </div>
+      </nav>
 
       <div
         style={{
@@ -100,16 +100,31 @@ export default function ProductDetailPage({ params }: { params: Promise<{ slug: 
               boxShadow: 'var(--shadow-card)',
             }}
           >
-            <img
-              src={activeDisplayImage}
-              alt={`${product.title} - ${activeVariant.title}`}
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                transition: 'opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-              }}
-            />
+            {activeDisplayImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={activeDisplayImage}
+                alt={`${product.title} - ${activeVariant.title}`}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  transition: 'opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                }}
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (activeVariant?.image && target.src !== activeVariant.image) {
+                    target.src = activeVariant.image;
+                  } else {
+                    target.style.opacity = '0.4';
+                  }
+                }}
+              />
+            ) : (
+              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-raised)', color: 'var(--text-muted)' }}>
+                <span>No preview available</span>
+              </div>
+            )}
             {/* Active Variant Pill */}
             <div
               style={{
@@ -152,7 +167,15 @@ export default function ProductDetailPage({ params }: { params: Promise<{ slug: 
                     }}
                     aria-label={`View photo ${idx + 1}`}
                   >
-                    <img src={img} alt={`Studio angle ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img}
+                      alt={`Studio angle ${idx + 1}`}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      onError={(e) => {
+                        (e.currentTarget as HTMLElement).style.opacity = '0.3';
+                      }}
+                    />
                   </button>
                 );
               })}
@@ -270,8 +293,8 @@ export default function ProductDetailPage({ params }: { params: Promise<{ slug: 
           </div>
 
           {/* Add to Cart Actions */}
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '2rem' }}>
-            {/* Quantity */}
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+            {/* Quantity Stepper with accessible 36px targets */}
             <div
               style={{
                 display: 'flex',
@@ -279,23 +302,51 @@ export default function ProductDetailPage({ params }: { params: Promise<{ slug: 
                 background: 'var(--surface)',
                 borderRadius: 'var(--radius-xs)',
                 border: '1px solid var(--border-control)',
-                padding: '0.35rem 0.65rem',
-                gap: '0.65rem',
+                padding: '0.2rem',
+                gap: '0.25rem',
               }}
             >
               <button
                 onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                style={{ color: 'var(--text-primary)', padding: '0.2rem', fontSize: '1rem', fontWeight: 600 }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '2.25rem',
+                  height: '2.25rem',
+                  color: 'var(--text-primary)',
+                  fontSize: '1.15rem',
+                  fontWeight: 600,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  borderRadius: 'var(--radius-xs)',
+                  transition: 'background var(--transition-fast)',
+                }}
                 aria-label="Decrease quantity"
               >
                 -
               </button>
-              <span style={{ fontSize: '0.9rem', fontWeight: 700, minWidth: '1.25rem', textAlign: 'center', color: 'var(--text-primary)' }}>
+              <span style={{ fontSize: '0.95rem', fontWeight: 700, minWidth: '1.75rem', textAlign: 'center', color: 'var(--text-primary)' }}>
                 {quantity}
               </span>
               <button
                 onClick={() => setQuantity(quantity + 1)}
-                style={{ color: 'var(--text-primary)', padding: '0.2rem', fontSize: '1rem', fontWeight: 600 }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '2.25rem',
+                  height: '2.25rem',
+                  color: 'var(--text-primary)',
+                  fontSize: '1.15rem',
+                  fontWeight: 600,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  borderRadius: 'var(--radius-xs)',
+                  transition: 'background var(--transition-fast)',
+                }}
                 aria-label="Increase quantity"
               >
                 +
@@ -306,7 +357,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ slug: 
             <button
               onClick={handleAddToCart}
               className="btn-primary"
-              style={{ flex: 1, padding: '0.8rem', fontSize: '0.95rem' }}
+              style={{ flex: 1, padding: '0.85rem 1.25rem', fontSize: '0.95rem', height: '2.75rem' }}
             >
               <ShoppingCart size={17} />
               <span>Add to Cart ({formatINR(activeVariant.pricePaise * quantity)})</span>
@@ -316,24 +367,55 @@ export default function ProductDetailPage({ params }: { params: Promise<{ slug: 
           {/* Toast Notice */}
           {addedToast && (
             <div
+              role="status"
               style={{
-                padding: '0.65rem 0.85rem',
+                padding: '0.75rem 1rem',
                 background: 'var(--status-ready-bg)',
                 border: '1px solid var(--status-ready-border)',
                 borderRadius: 'var(--radius-xs)',
                 color: 'var(--status-ready)',
-                fontSize: '0.82rem',
+                fontSize: '0.84rem',
                 fontWeight: 600,
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.4rem',
-                marginBottom: '1.5rem',
+                justifyContent: 'space-between',
+                gap: '0.5rem',
+                marginBottom: '1.25rem',
+                animation: 'toastFade 200ms ease-out',
               }}
             >
-              <CheckCircle2 size={15} />
-              <span>Added to your cart. Cart drawer ready.</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                <CheckCircle2 size={16} />
+                <span>Added to cart successfully.</span>
+              </div>
+              <Link href="/checkout" style={{ color: 'var(--status-ready)', textDecoration: 'underline', fontSize: '0.82rem', fontWeight: 700 }}>
+                Checkout Now &rarr;
+              </Link>
             </div>
           )}
+
+          {/* Trust Value Propositions */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: '0.75rem',
+              marginBottom: '2rem',
+              padding: '0.85rem 1rem',
+              background: 'var(--surface-alt)',
+              borderRadius: 'var(--radius-xs)',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <Truck size={15} style={{ color: 'var(--brand-accent)', flexShrink: 0 }} />
+              <span>Free delivery on orders ₹999+</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <ShieldCheck size={15} style={{ color: 'var(--status-ready)', flexShrink: 0 }} />
+              <span>Calibrated Nashik Studio QC</span>
+            </div>
+          </div>
 
           {/* Technical Specifications */}
           <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '1.5rem' }}>

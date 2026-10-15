@@ -80,6 +80,8 @@ export default function HeroSlider() {
   const [paused, setPaused] = useState(false);
   const [entering, setEntering] = useState<'left' | 'right' | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
   const prefersReducedMotion =
     typeof window !== 'undefined'
       ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -101,6 +103,27 @@ export default function HeroSlider() {
   const prev = useCallback(() => {
     goTo((current - 1 + SLIDES.length) % SLIDES.length, 'left');
   }, [current, goTo]);
+
+  // Touch gesture swipe handling
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null || touchStartYRef.current === null) return;
+    const diffX = touchStartXRef.current - e.changedTouches[0].clientX;
+    const diffY = touchStartYRef.current - e.changedTouches[0].clientY;
+    if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
+      if (diffX > 0) {
+        next();
+      } else {
+        prev();
+      }
+    }
+    touchStartXRef.current = null;
+    touchStartYRef.current = null;
+  };
 
   // Keyboard navigation
   useEffect(() => {
@@ -131,6 +154,8 @@ export default function HeroSlider() {
       onMouseLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
       onBlur={() => setPaused(false)}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
     >
       {/* SLIDE WRAPPER */}
       <div
@@ -362,7 +387,8 @@ export default function HeroSlider() {
             aria-label="Hero slide indicators"
             style={{
               display: 'flex',
-              gap: '0.45rem',
+              alignItems: 'center',
+              gap: '0.25rem',
               marginTop: '2.5rem',
             }}
           >
@@ -374,16 +400,25 @@ export default function HeroSlider() {
                 aria-label={`Go to slide ${i + 1}: ${s.category}`}
                 onClick={() => goTo(i, i > current ? 'right' : 'left')}
                 style={{
-                  height: '3px',
-                  borderRadius: '999px',
-                  background: i === current ? '#FF7100' : 'rgba(255,255,255,0.3)',
+                  background: 'none',
                   border: 'none',
                   cursor: 'pointer',
-                  padding: 0,
-                  transition: 'width 0.3s ease, background 0.3s ease',
-                  width: i === current ? '2rem' : '0.75rem',
+                  padding: '0.5rem 0.25rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
                 }}
-              />
+              >
+                <span
+                  style={{
+                    display: 'block',
+                    height: '3px',
+                    borderRadius: '999px',
+                    background: i === current ? '#FF7100' : 'rgba(255,255,255,0.3)',
+                    transition: 'width 0.3s ease, background 0.3s ease',
+                    width: i === current ? '2.25rem' : '0.8rem',
+                  }}
+                />
+              </button>
             ))}
           </div>
         </div>

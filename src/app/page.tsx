@@ -33,9 +33,7 @@ export default function HomePage() {
       <section className="container">
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '1.75rem', flexWrap: 'wrap', gap: '0.75rem' }}>
           <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--brand-accent)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-              COLLECTIONS
-            </span>
+            <span className="section-label">COLLECTIONS</span>
             <h2 style={{ fontSize: '1.75rem', color: 'var(--text-primary)', marginTop: '0.2rem' }}>
               Explore Studio Domains
             </h2>
@@ -92,17 +90,10 @@ export default function HomePage() {
             <Link
               key={idx}
               href={cat.href}
-              className="card card-hover"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                minHeight: '140px',
-                padding: '1.25rem',
-              }}
+              className="category-card"
             >
               <div>
-                <h3 style={{ fontSize: '1.05rem', color: 'var(--text-primary)', fontWeight: 700, marginBottom: '0.35rem' }}>
+                <h3 style={{ fontSize: '1.02rem', color: 'var(--text-primary)', fontWeight: 700, marginBottom: '0.35rem' }}>
                   {cat.title}
                 </h3>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.45, margin: 0 }}>
@@ -110,7 +101,7 @@ export default function HomePage() {
                 </p>
               </div>
               <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--brand-accent)', marginTop: '1rem' }}>
-                {cat.count} →
+                {cat.count} &rarr;
               </div>
             </Link>
           ))}

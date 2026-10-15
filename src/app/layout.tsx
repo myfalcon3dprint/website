@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import PreviewBanner from '@/components/layout/PreviewBanner';
+import WhatsAppButton from '@/components/layout/WhatsAppButton';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
     'PLA PETG resin 3D printing',
   ],
   authors: [{ name: 'Falcon 3D Prints' }],
-  metadataBase: new URL('http://localhost:3001'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || 'https://falcon3dprints.in'),
   icons: {
     icon: [
       { url: '/favicon.png', type: 'image/png' },
@@ -51,10 +52,11 @@ export default function RootLayout({
       <body>
         <PreviewBanner />
         <Header />
-        <main style={{ minHeight: 'calc(100vh - 12rem)', display: 'flex', flexDirection: 'column' }}>
+        <main id="main-content" style={{ minHeight: 'calc(100vh - 12rem)', display: 'flex', flexDirection: 'column' }}>
           {children}
         </main>
         <Footer />
+        <WhatsAppButton />
       </body>
     </html>
   );

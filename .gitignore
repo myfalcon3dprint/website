@@ -36,5 +36,7 @@ RESUME-PROMPT.md
 # Scratch Database Files
 supabase/combined_migration.sql
 supabase/bootstrap.sql
+supabase/.branches/
+supabase/.temp/
 
 

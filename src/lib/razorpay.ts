@@ -60,3 +60,96 @@ export function verifyRazorpayWebhookSignature(
 
   return expectedSignature === signature;
 }
+
+export interface PaymentValidationResult {
+  valid: boolean;
+  error?: string;
+  providerDetails?: {
+    id: string;
+    orderId: string;
+    amountPaise: number;
+    currency: string;
+    status: string;
+  };
+}
+
+/**
+ * Validates payment directly against the Razorpay API to confirm provider-confirmed amount,
+ * currency, captured status, and order association.
+ */
+export async function fetchAndValidatePaymentDetails({
+  paymentId,
+  expectedOrderId,
+  expectedAmountPaise,
+}: {
+  paymentId: string;
+  expectedOrderId: string;
+  expectedAmountPaise?: number;
+}): Promise<PaymentValidationResult> {
+  const client = getRazorpayClient();
+  if (!client) {
+    // Development sandbox simulation mode
+    return {
+      valid: true,
+      providerDetails: {
+        id: paymentId,
+        orderId: expectedOrderId,
+        amountPaise: expectedAmountPaise || 0,
+        currency: 'INR',
+        status: 'captured',
+      },
+    };
+  }
+
+  try {
+    const payment = await (client.payments as unknown as { fetch: (id: string) => Promise<Record<string, unknown>> }).fetch(paymentId);
+    if (!payment) {
+      return { valid: false, error: 'Payment not found on payment gateway' };
+    }
+
+    const providerOrderId = String(payment.order_id || '');
+    if (providerOrderId !== expectedOrderId) {
+      return {
+        valid: false,
+        error: `Payment order mismatch: gateway payment is associated with order '${providerOrderId}', expected '${expectedOrderId}'`,
+      };
+    }
+
+    const currency = String(payment.currency || '');
+    if (currency !== 'INR') {
+      return { valid: false, error: `Invalid currency: expected 'INR', gateway returned '${currency}'` };
+    }
+
+    const status = String(payment.status || '');
+    if (status !== 'captured') {
+      return {
+        valid: false,
+        error: status === 'authorized'
+          ? 'Payment is authorized but pending gateway capture confirmation.'
+          : `Payment is not in captured status: currently '${status}'`,
+      };
+    }
+
+    const amount = Number(payment.amount || 0);
+    if (expectedAmountPaise !== undefined && amount !== expectedAmountPaise) {
+      return {
+        valid: false,
+        error: `Payment amount mismatch: gateway received ${amount} paise, order expected ${expectedAmountPaise} paise`,
+      };
+    }
+
+    return {
+      valid: true,
+      providerDetails: {
+        id: String(payment.id),
+        orderId: providerOrderId,
+        amountPaise: amount,
+        currency,
+        status,
+      },
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown gateway error';
+    return { valid: false, error: `Failed to verify payment with Razorpay gateway: ${message}` };
+  }
+}

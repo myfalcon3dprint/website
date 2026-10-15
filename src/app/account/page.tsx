@@ -3,11 +3,13 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useOrders } from '@/lib/store';
+import { useAuthUser } from '@/lib/supabase/auth';
 import { formatINR } from '@/lib/money';
-import { Package, Search, ArrowRight } from 'lucide-react';
+import { Package, Search, ArrowRight, User, LogOut, ShieldCheck, Sparkles } from 'lucide-react';
 
 export default function AccountOrdersPage() {
   const { orders } = useOrders();
+  const { user, profile, isStaff, signOut, signInWithGoogle } = useAuthUser();
   const [searchOrderNum, setSearchOrderNum] = useState('');
 
   const displayedOrders = orders.filter((o) => {
@@ -20,13 +22,124 @@ export default function AccountOrdersPage() {
 
   return (
     <div className="container" style={{ paddingTop: '2.5rem', paddingBottom: '5rem' }}>
+      {/* User Session Banner */}
+      {user ? (
+        <div
+          className="card"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            padding: '1.25rem 1.5rem',
+            marginBottom: '2rem',
+            background: 'var(--surface)',
+            border: '1px solid var(--border-subtle)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+            <div
+              style={{
+                width: '2.8rem',
+                height: '2.8rem',
+                borderRadius: '50%',
+                background: 'var(--brand-accent)',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 700,
+                fontSize: '1.1rem',
+                flexShrink: 0,
+              }}
+            >
+              {(profile?.full_name || user.email || 'U')[0].toUpperCase()}
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '1rem' }}>
+                  {profile?.full_name || user.email?.split('@')[0]}
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.7rem',
+                    padding: '0.15rem 0.5rem',
+                    borderRadius: 'var(--radius-full)',
+                    background: isStaff ? 'rgba(255, 113, 0, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                    color: isStaff ? 'var(--brand-accent)' : '#22C55E',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {profile?.role || 'Customer'}
+                </span>
+              </div>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{user.email}</span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {isStaff && (
+              <Link href="/admin" className="btn-primary" style={{ fontSize: '0.82rem', padding: '0.45rem 0.9rem' }}>
+                <ShieldCheck size={14} />
+                <span>Admin Hub</span>
+              </Link>
+            )}
+            <button
+              onClick={() => signOut()}
+              className="btn-outline"
+              style={{ fontSize: '0.82rem', padding: '0.45rem 0.9rem' }}
+            >
+              <LogOut size={14} />
+              <span>Sign Out</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          className="card"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            padding: '1.25rem 1.5rem',
+            marginBottom: '2rem',
+            background: 'rgba(255, 113, 0, 0.05)',
+            border: '1px solid rgba(255, 113, 0, 0.2)',
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--brand-accent)', marginBottom: '0.2rem' }}>
+              <Sparkles size={14} />
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                SYNC YOUR 3D PRINTS
+              </span>
+            </div>
+            <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-primary)', fontWeight: 500 }}>
+              Sign in with Google to synchronize orders, quotation history, and dispatch updates across all your devices.
+            </p>
+          </div>
+          <button
+            onClick={() => signInWithGoogle('/account')}
+            className="btn-primary"
+            style={{ fontSize: '0.84rem', padding: '0.55rem 1.1rem' }}
+          >
+            <span>Sign in with Google</span>
+            <ArrowRight size={14} />
+          </button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <span style={{ fontSize: '0.75rem', color: 'var(--brand-accent)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
             CUSTOMER PORTAL
           </span>
           <h1 style={{ fontSize: '2.1rem', color: 'var(--text-primary)', marginTop: '0.25rem', letterSpacing: '-0.025em' }}>
-            Your Orders & Print Status
+            Your Orders &amp; Print Status
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem' }}>
             Track real-time layer progress, quality check milestones, and delivery dispatch.

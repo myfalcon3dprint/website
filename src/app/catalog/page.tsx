@@ -170,17 +170,7 @@ function CatalogContent() {
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              style={{
-                padding: '0.45rem 0.85rem',
-                borderRadius: 'var(--radius-xs)',
-                fontSize: '0.82rem',
-                fontWeight: isActive ? 600 : 500,
-                whiteSpace: 'nowrap',
-                transition: 'all 0.15s ease',
-                background: isActive ? 'var(--action-primary)' : 'var(--surface)',
-                color: isActive ? 'var(--action-primary-text)' : 'var(--text-secondary)',
-                border: isActive ? '1px solid var(--action-primary)' : '1px solid var(--border-subtle)',
-              }}
+              className={`filter-chip${isActive ? ' active' : ''}`}
             >
               {cat}
             </button>
@@ -238,11 +228,26 @@ function CatalogContent() {
                     display: 'block',
                   }}
                 >
-                  <img
-                    src={product.images[0]}
-                    alt={product.title}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
+                  {product.images && product.images[0] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={product.images[0]}
+                      alt={product.title}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (activeVariant?.image && target.src !== activeVariant.image) {
+                          target.src = activeVariant.image;
+                        } else {
+                          target.style.opacity = '0.4';
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-raised)', color: 'var(--text-muted)' }}>
+                      <Compass size={32} />
+                    </div>
+                  )}
                   <div style={{ position: 'absolute', top: '0.65rem', left: '0.65rem' }}>
                     {product.stockType === 'ready_stock' ? (
                       <span className="badge badge-ready">Ready Stock</span>

@@ -18,7 +18,7 @@ export default function Footer() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
             gap: '2.5rem',
             marginBottom: '3rem',
           }}
@@ -35,18 +35,25 @@ export default function Footer() {
               />
             </div>
 
-            <p style={{ fontSize: '0.85rem', color: 'var(--brand-accent)', fontWeight: 600, marginBottom: '0.65rem' }}>
-              “Where ideas take shapes”
+            <p style={{ fontSize: '0.84rem', color: 'var(--brand-accent)', fontWeight: 600, marginBottom: '0.65rem' }}>
+              &ldquo;Where ideas take shapes&rdquo;
             </p>
 
             <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '1.25rem' }}>
               Contemporary additive manufacturing studio based in Nashik, Maharashtra. Engineering architectural scale models, functional desk accessories, and custom collector miniatures.
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Phone size={14} style={{ color: 'var(--brand-accent)' }} />
-                <a href="tel:+919850607144" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                <Phone size={14} style={{ color: 'var(--brand-accent)', flexShrink: 0 }} />
+                <a
+                  href="tel:+919850607144"
+                  style={{
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    transition: 'color var(--transition-fast)',
+                  }}
+                >
                   +91 98506 07144
                 </a>
               </div>
@@ -59,28 +66,28 @@ export default function Footer() {
 
           {/* Quick Links */}
           <div>
-            <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1rem', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            <h3 style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
               Catalog
             </h3>
-            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.55rem', fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
               <li>
                 <Link href="/catalog?category=Planters%20%26%20Decor">
-                  Planters & Modern Decor
+                  Planters &amp; Modern Decor
                 </Link>
               </li>
               <li>
                 <Link href="/catalog?category=Miniatures%20%26%20Collectibles">
-                  Articulated & Fantasy Miniatures
+                  Articulated &amp; Fantasy Miniatures
                 </Link>
               </li>
               <li>
                 <Link href="/catalog?category=Desk%20Accessories">
-                  Desk Ergonomics & Organizers
+                  Desk Ergonomics &amp; Organizers
                 </Link>
               </li>
               <li>
                 <Link href="/catalog?category=Architectural%20Models">
-                  Architectural & Temple Scale Models
+                  Architectural &amp; Temple Scale Models
                 </Link>
               </li>
               <li>
@@ -93,21 +100,24 @@ export default function Footer() {
 
           {/* Custom Services */}
           <div>
-            <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1rem', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            <h3 style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
               Custom Prototyping
             </h3>
-            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.55rem', fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
               <li>
-                <Link href="/quote" style={{ color: 'var(--brand-accent)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                <Link
+                  href="/quote"
+                  style={{ color: 'var(--brand-accent)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+                >
                   <span>Instant 3D Print Quote</span>
                   <ArrowUpRight size={13} />
                 </Link>
               </li>
               <li>
-                <Link href="/quote">Bulk Manufacturing & Fleet Orders</Link>
+                <Link href="/quote">Bulk Manufacturing &amp; Fleet Orders</Link>
               </li>
               <li>
-                <Link href="/catalog">Rapid Prototyping (FDM & SLA)</Link>
+                <Link href="/catalog">Rapid Prototyping (FDM &amp; SLA)</Link>
               </li>
               <li>
                 <Link href="/account">Track Active Order Status</Link>
@@ -122,7 +132,7 @@ export default function Footer() {
 
           {/* Studio Standards */}
           <div>
-            <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1rem', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            <h3 style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
               Studio Standards
             </h3>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '0.85rem' }}>
@@ -144,18 +154,18 @@ export default function Footer() {
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: '1rem',
-            fontSize: '0.78rem',
+            fontSize: '0.77rem',
             color: 'var(--text-muted)',
           }}
         >
-          <p>© {new Date().getFullYear()} Falcon 3D Prints. All rights reserved. Nashik, Maharashtra, India.</p>
+          <p>&copy; {new Date().getFullYear()} Falcon 3D Prints. All rights reserved. Nashik, Maharashtra, India.</p>
 
-          <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+          <nav aria-label="Legal links" style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
             <Link href="/policies/shipping">Shipping Policy</Link>
-            <Link href="/policies/returns">Return & Replacement</Link>
+            <Link href="/policies/returns">Return &amp; Replacement</Link>
             <Link href="/policies/terms">Terms of Service</Link>
             <Link href="/contact">Contact Support</Link>
-          </div>
+          </nav>
         </div>
       </div>
     </footer>

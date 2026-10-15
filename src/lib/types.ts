@@ -17,6 +17,7 @@ export interface ProductVariant {
   stockQuantity: number;
   leadTimeDays: number; // 0 for ready stock, 2-4 for made-to-order
   image?: string; // Optional variant-specific studio photograph
+  version?: number;
 }
 
 export interface Product {
@@ -41,6 +42,8 @@ export interface Product {
   featured: boolean;
   rating: number;
   reviewCount: number;
+  updatedAt?: string;
+  version?: number;
 }
 
 export interface CartItem {
@@ -92,6 +95,7 @@ export interface Order {
   id: string;
   orderNumber: string;
   createdAt: string;
+  updatedAt?: string;
   customerName: string;
   customerEmail: string;
   customerPhone: string;
@@ -107,12 +111,16 @@ export interface Order {
   status: OrderStatus;
   trackingNumber?: string;
   statusHistory: { status: OrderStatus; timestamp: string; note: string }[];
+  refundStatus?: 'none' | 'pending' | 'approved' | 'rejected' | 'processed';
+  refundNotes?: string;
+  version?: number;
 }
 
 export interface CustomQuoteRequest {
   id: string;
   referenceNumber: string;
   createdAt: string;
+  updatedAt?: string;
   fullName: string;
   phone: string;
   email: string;
@@ -131,11 +139,26 @@ export interface CustomQuoteRequest {
   adminNotes?: string;
 }
 
-export type StaffRole = 'owner' | 'order_manager' | 'production_operator' | 'catalog_editor';
+export type StaffRole = 'owner' | 'order_manager' | 'production_operator' | 'catalog_editor' | 'support';
 
 export interface StaffUser {
   id: string;
   name: string;
   email: string;
   role: StaffRole;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  staffUserId: string;
+  staffName: string;
+  staffRole: StaffRole;
+  action: string;
+  entityType: 'order' | 'product' | 'quote' | 'user' | 'system';
+  entityId: string;
+  oldState?: Record<string, unknown> | null;
+  newState?: Record<string, unknown> | null;
+  notes?: string;
+  ipAddress?: string;
+  createdAt: string;
 }

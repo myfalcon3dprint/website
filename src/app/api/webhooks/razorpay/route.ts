@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { verifyRazorpayWebhookSignature } from '@/lib/razorpay';
 import { getSupabaseAdminClient } from '@/lib/supabase/server';
+import { finalizeOrderPayment } from '@/lib/payment-finalization';
 
 export async function POST(request: Request) {
   try {
@@ -26,16 +27,43 @@ export async function POST(request: Request) {
       if (eventType === 'payment.captured') {
         const razorpayOrderId = payload.order_id;
         const razorpayPaymentId = payload.id;
+        const currency = payload.currency;
+        const amountPaise = Number(payload.amount);
 
-        await supabase
+        if (!razorpayOrderId || !razorpayPaymentId) {
+          return NextResponse.json({ error: 'Missing payment identifiers in webhook payload' }, { status: 400 });
+        }
+
+        if (currency && currency !== 'INR') {
+          return NextResponse.json({ error: `Currency mismatch: expected INR, received ${currency}` }, { status: 400 });
+        }
+
+        // 1. Fetch order by razorpay_order_id
+        const { data: order, error: orderFetchErr } = await supabase
           .from('orders')
-          .update({
-            payment_status: 'captured',
-            status: 'confirmed',
-            razorpay_payment_id: razorpayPaymentId,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('razorpay_order_id', razorpayOrderId);
+          .select('id, order_number, total_paise, payment_status')
+          .eq('razorpay_order_id', razorpayOrderId)
+          .single();
+
+        if (orderFetchErr || !order) {
+          // Acknowledge webhook to avoid retries if order was created in separate environment
+          return NextResponse.json({ received: true, warning: 'Order not found for razorpay_order_id' });
+        }
+
+        // 2. Route through unified idempotent finalization
+        const result = await finalizeOrderPayment({
+          orderNumber: order.order_number,
+          razorpayOrderId,
+          razorpayPaymentId,
+          amountPaise: amountPaise || order.total_paise,
+          eventSource: 'webhook',
+        });
+
+        return NextResponse.json({
+          received: true,
+          captured: !result.alreadyCaptured,
+          alreadyCaptured: result.alreadyCaptured,
+        });
       } else if (eventType === 'payment.failed') {
         const razorpayOrderId = payload.order_id;
         await supabase
@@ -44,7 +72,8 @@ export async function POST(request: Request) {
             payment_status: 'failed',
             updated_at: new Date().toISOString(),
           })
-          .eq('razorpay_order_id', razorpayOrderId);
+          .eq('razorpay_order_id', razorpayOrderId)
+          .neq('payment_status', 'captured');
       }
     }
 

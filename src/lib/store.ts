@@ -1,22 +1,28 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Product, CartItem, Order, CustomQuoteRequest, StaffUser, OrderStatus } from './types';
-import { INITIAL_PRODUCTS, INITIAL_ORDERS, INITIAL_QUOTES, STAFF_USERS } from './mock-data';
+import { Product, CartItem, Order, CustomQuoteRequest, OrderStatus } from './types';
+import { INITIAL_PRODUCTS, INITIAL_ORDERS, INITIAL_QUOTES } from './mock-data';
 
 // Local storage keys
 const CART_STORAGE_KEY = 'falcon_cart_v1';
 const ORDERS_STORAGE_KEY = 'falcon_orders_v1';
 const QUOTES_STORAGE_KEY = 'falcon_quotes_v1';
 const PRODUCTS_STORAGE_KEY = 'falcon_products_v2';
-const STAFF_ROLE_KEY = 'falcon_staff_role_v1';
 
-// Custom event for cross-component reactive updates
+// Custom events for cross-component reactive updates
 const SYNC_EVENT = 'falcon_store_sync';
+export const OPEN_CART_EVENT = 'falcon_open_cart';
 
 export function notifyStoreUpdate() {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event(SYNC_EVENT));
+  }
+}
+
+export function openCartDrawer() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(OPEN_CART_EVENT));
   }
 }
 
@@ -60,7 +66,7 @@ export function useCart() {
     };
   }, []);
 
-  const addToCart = (product: Product, variantId: string, quantity = 1) => {
+  const addToCart = (product: Product, variantId: string, quantity = 1, openDrawer = true) => {
     const variant = product.variants.find((v) => v.id === variantId) || product.variants[0];
     const current = getStoredCart();
     const existingIndex = current.findIndex((item) => item.product.id === product.id && item.variant.id === variant.id);
@@ -73,6 +79,9 @@ export function useCart() {
       updated = [...current, { id: `${product.id}_${variant.id}`, product, variant, quantity }];
     }
     saveStoredCart(updated);
+    if (openDrawer) {
+      openCartDrawer();
+    }
   };
 
   const updateQuantity = (cartItemId: string, newQty: number) => {
@@ -107,6 +116,7 @@ export function useCart() {
     updateQuantity,
     removeFromCart,
     clearCart,
+    openDrawer: openCartDrawer,
   };
 }
 
@@ -177,6 +187,8 @@ export function useOrders() {
 
   const updateOrderStatus = (orderId: string, newStatus: OrderStatus, note = '') => {
     const current = getStoredOrders();
+    const targetOrder = current.find((o) => o.id === orderId);
+
     const updated = current.map((ord) => {
       if (ord.id !== orderId) return ord;
       const newHistory = [
@@ -186,15 +198,42 @@ export function useOrders() {
       return { ...ord, status: newStatus, statusHistory: newHistory };
     });
     saveStoredOrders(updated);
+
+    // Sync to backend API if order exists
+    if (orderId && !orderId.startsWith('ord-mock-')) {
+      fetch(`/api/orders/${orderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          newStatus,
+          statusNote: note,
+          lastKnownUpdatedAt: targetOrder?.updatedAt,
+        }),
+      }).catch((err) => console.warn('Order status backend sync notice:', err));
+    }
   };
 
   const updateShippingAddress = (orderId: string, newAddress: Order['shippingAddress']) => {
     const current = getStoredOrders();
+    const targetOrder = current.find((o) => o.id === orderId);
+
     const updated = current.map((ord) => {
       if (ord.id !== orderId) return ord;
       return { ...ord, shippingAddress: newAddress };
     });
     saveStoredOrders(updated);
+
+    // Sync to backend API
+    if (orderId && !orderId.startsWith('ord-mock-')) {
+      fetch(`/api/orders/${orderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shippingAddress: newAddress,
+          lastKnownUpdatedAt: targetOrder?.updatedAt,
+        }),
+      }).catch((err) => console.warn('Address update backend sync notice:', err));
+    }
   };
 
   return { orders, addOrder, updateOrderStatus, updateShippingAddress };
@@ -334,31 +373,4 @@ export function useProducts() {
   return { products, updateProductStock };
 }
 
-// ----------------------------------------------------
-// Staff Auth & Role
-// ----------------------------------------------------
-export function useStaffRole() {
-  const [activeStaff, setActiveStaff] = useState<StaffUser>(STAFF_USERS[0]);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedRoleId = localStorage.getItem(STAFF_ROLE_KEY);
-      if (savedRoleId) {
-        const found = STAFF_USERS.find((u) => u.id === savedRoleId);
-        if (found) setActiveStaff(found);
-      }
-    }
-  }, []);
-
-  const switchRole = (staffId: string) => {
-    const found = STAFF_USERS.find((u) => u.id === staffId);
-    if (found) {
-      setActiveStaff(found);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(STAFF_ROLE_KEY, staffId);
-      }
-    }
-  };
-
-  return { activeStaff, switchRole, staffUsers: STAFF_USERS };
-}

@@ -18,7 +18,7 @@ INSERT INTO public.products (
     care_info, lead_time_days, is_published, specs, images, features, rating, review_count
 ) VALUES
 (
-    'p1111111-1111-1111-1111-111111111111',
+    'a1111111-1111-1111-1111-111111111111',
     'Falcon Geometric Origami Planter',
     'falcon-heavy-geometric-planter',
     'Precision-crafted geometric planter engineered with micro-drainage channels to prevent root rot. Printed with eco-friendly biodegradable PLA, creating a tactile matte faceted exterior that captures shifting daylight on your desk or windowsill.',
@@ -39,7 +39,7 @@ INSERT INTO public.products (
     38
 ),
 (
-    'p2222222-2222-2222-2222-222222222222',
+    'a2222222-2222-2222-2222-222222222222',
     'Cyber Gryphon Articulated Figure',
     'mecha-gryphon-articulated-figurine',
     'A masterpiece of print-in-place engineering. Featuring 18 interlocking articulation points with zero assembly required right off the build plate. Wings expand to a 26cm span with mechanical feathers inspired by predatory falcons.',
@@ -60,7 +60,7 @@ INSERT INTO public.products (
     19
 ),
 (
-    'p3333333-3333-3333-3333-333333333333',
+    'a3333333-3333-3333-3333-333333333333',
     'AeroStand Ergonomic Headphone Rest',
     'aerostand-minimalist-headphone-cradle',
     'Architectural desktop headphone mount designed to cradle curved headbands without denting leather padding. Features internal acoustic baffle chambers to reduce resonant desk hum from mechanical typing.',
@@ -88,8 +88,8 @@ INSERT INTO public.product_variants (
     price_adjustment_paise, stock_quantity, lead_time_days, dimensions, weight_grams, image
 ) VALUES
 (
-    'v1111111-1111-1111-1111-111111111111',
-    'p1111111-1111-1111-1111-111111111111',
+    'b1111111-1111-1111-1111-111111111111',
+    'a1111111-1111-1111-1111-111111111111',
     'FAL-PLT-GEO-BLK-M',
     'Medium (12cm) - Matte Obsidian Black',
     'PLA',
@@ -103,8 +103,8 @@ INSERT INTO public.product_variants (
     '/products/planter-obsidian-black.jpg'
 ),
 (
-    'v1111111-1111-1111-1111-111111111112',
-    'p1111111-1111-1111-1111-111111111111',
+    'b1111111-1111-1111-1111-111111111112',
+    'a1111111-1111-1111-1111-111111111111',
     'FAL-PLT-GEO-ORG-M',
     'Medium (12cm) - Falcon Signature Orange',
     'PLA',
@@ -118,8 +118,8 @@ INSERT INTO public.product_variants (
     '/products/planter-orange-variant.jpg'
 ),
 (
-    'v2222222-2222-2222-2222-222222222221',
-    'p2222222-2222-2222-2222-222222222222',
+    'b2222222-2222-2222-2222-222222222221',
+    'a2222222-2222-2222-2222-222222222222',
     'FAL-FIG-GRY-TIT-STD',
     'Standard (18cm wingspan) - Titanium Gray PETG',
     'PETG',
@@ -158,7 +158,7 @@ INSERT INTO public.quotes (
     infill_percentage, quantity, customer_notes, status, quoted_price_paise, estimated_lead_days, admin_notes
 ) VALUES
 (
-    'q1111111-1111-1111-1111-111111111111',
+    'd1111111-1111-1111-1111-111111111111',
     'RFQ-FAL-2026-081',
     'Rajesh Sharma',
     'rajesh.sharma@archstudio.in',
@@ -176,7 +176,7 @@ INSERT INTO public.quotes (
     'Slice simulation: 18h print time per unit. Good bed adhesion expected.'
 ),
 (
-    'q2222222-2222-2222-2222-222222222222',
+    'd2222222-2222-2222-2222-222222222222',
     'RFQ-FAL-2026-082',
     'Dr. Sneha Patil',
     'sneha.patil@nashikdental.com',

@@ -285,6 +285,7 @@ export default function CheckoutPage() {
                 <input
                   type="text"
                   required
+                  autoComplete="name"
                   className="input"
                   placeholder="e.g. Aarav Deshmukh"
                   value={form.fullName}
@@ -300,6 +301,7 @@ export default function CheckoutPage() {
                   <input
                     type="email"
                     required
+                    autoComplete="email"
                     className="input"
                     placeholder="name@example.com"
                     value={email}
@@ -314,6 +316,7 @@ export default function CheckoutPage() {
                   <input
                     type="tel"
                     required
+                    autoComplete="tel"
                     className="input"
                     placeholder="98506 07144"
                     value={form.phone}
@@ -329,6 +332,7 @@ export default function CheckoutPage() {
                 <input
                   type="text"
                   required
+                  autoComplete="street-address"
                   className="input"
                   placeholder="Flat 302, Sai Vihar, College Road"
                   value={form.addressLine1}
@@ -344,6 +348,7 @@ export default function CheckoutPage() {
                   <input
                     type="text"
                     required
+                    autoComplete="address-level2"
                     className="input"
                     value={form.city}
                     onChange={(e) => setForm({ ...form, city: e.target.value })}
@@ -357,6 +362,7 @@ export default function CheckoutPage() {
                   <input
                     type="text"
                     required
+                    autoComplete="address-level1"
                     className="input"
                     value={form.state}
                     onChange={(e) => setForm({ ...form, state: e.target.value })}
@@ -371,6 +377,7 @@ export default function CheckoutPage() {
                     type="text"
                     maxLength={6}
                     required
+                    autoComplete="postal-code"
                     className="input"
                     placeholder="422009"
                     value={form.pinCode}
@@ -378,6 +385,12 @@ export default function CheckoutPage() {
                   />
                 </div>
               </div>
+
+              {form.pinCode.startsWith('422') && (
+                <div style={{ padding: '0.45rem 0.65rem', background: 'var(--status-ready-bg)', border: '1px solid var(--status-ready-border)', borderRadius: 'var(--radius-xs)', fontSize: '0.75rem', color: 'var(--status-ready)', fontWeight: 600 }}>
+                  Nashik Local Hub Detected: Eligible for free local handoff or CIDCO studio pickup.
+                </div>
+              )}
             </div>
           </div>
 

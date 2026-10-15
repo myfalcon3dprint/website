@@ -1,5 +1,4 @@
 import { getSupabaseBrowserClient } from './client';
-import { getSupabaseAdminClient } from './server';
 
 export interface UploadResult {
   success: boolean;
@@ -8,10 +7,53 @@ export interface UploadResult {
 }
 
 /**
- * Uploads custom CAD file (STL, OBJ, STEP, 3MF) to the private 'cad-models' Supabase Storage bucket.
- * Falls back gracefully when Supabase credentials are not populated.
+ * Uploads custom CAD file (STL, OBJ, STEP, 3MF) using Cloudflare R2 direct pre-signed upload
+ * with zero egress fees, falling back to Supabase Storage or deterministic preview mode.
  */
 export async function uploadCadModelFile(file: File): Promise<UploadResult> {
+  // 1. Prioritize Cloudflare R2 direct browser-to-edge upload
+  try {
+    const presignedRes = await fetch('/api/storage/presigned-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileName: file.name,
+        fileSizeBytes: file.size,
+        contentType: file.type || 'application/octet-stream',
+        bucketType: 'cad',
+      }),
+    });
+
+    if (presignedRes.ok) {
+      const data = await presignedRes.json();
+      if (data.uploadUrl) {
+        // Direct upload to Cloudflare R2
+        const uploadRes = await fetch(data.uploadUrl, {
+          method: 'PUT',
+          body: file,
+          headers: {
+            'Content-Type': file.type || 'application/octet-stream',
+          },
+        });
+
+        if (uploadRes.ok) {
+          return {
+            success: true,
+            storagePath: `r2://${data.storageKey}`,
+          };
+        }
+      } else if (data.isSimulated) {
+        return {
+          success: true,
+          storagePath: `r2://${data.storageKey}`,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Cloudflare R2 pre-signed upload fallback to Supabase:', err);
+  }
+
+  // 2. Supabase Storage fallback
   const supabase = getSupabaseBrowserClient();
 
   if (!supabase) {
@@ -45,27 +87,5 @@ export async function uploadCadModelFile(file: File): Promise<UploadResult> {
   }
 }
 
-/**
- * Generates temporary signed URL for staff to download customer CAD files.
- * TTL defaults to 900 seconds (15 minutes).
- */
-export async function getCadModelSignedUrl(storagePath: string, expiresInSeconds = 900): Promise<string | null> {
-  const adminClient = getSupabaseAdminClient();
-  if (!adminClient) {
-    return null;
-  }
 
-  try {
-    const { data, error } = await adminClient.storage
-      .from('cad-models')
-      .createSignedUrl(storagePath, expiresInSeconds);
 
-    if (error || !data?.signedUrl) {
-      return null;
-    }
-
-    return data.signedUrl;
-  } catch {
-    return null;
-  }
-}

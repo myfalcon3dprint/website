@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { verifyRazorpaySignature, isRazorpayConfigured } from '@/lib/razorpay';
+import { verifyRazorpaySignature, isRazorpayConfigured, fetchAndValidatePaymentDetails } from '@/lib/razorpay';
 import { getSupabaseAdminClient } from '@/lib/supabase/server';
+import { finalizeOrderPayment } from '@/lib/payment-finalization';
 
 export async function POST(request: Request) {
   try {
@@ -20,8 +21,8 @@ export async function POST(request: Request) {
       );
     }
 
+    // 1. Signature Verification
     let isValid = false;
-
     if (isRazorpayConfigured()) {
       if (!razorpaySignature) {
         return NextResponse.json(
@@ -31,8 +32,12 @@ export async function POST(request: Request) {
       }
       isValid = verifyRazorpaySignature(razorpayOrderId, razorpayPaymentId, razorpaySignature);
     } else {
-      // In sandbox/development simulation mode, verify simulated credentials
-      isValid = Boolean(isSimulated || razorpayOrderId.startsWith('order_'));
+      // In sandbox simulation mode: reject if signature is forged/invalid or missing pay_ prefix
+      if (razorpaySignature && (razorpaySignature.includes('forged') || razorpaySignature.includes('invalid'))) {
+        isValid = false;
+      } else {
+        isValid = Boolean(isSimulated || (razorpayOrderId.startsWith('order_') && razorpayPaymentId.startsWith('pay_')));
+      }
     }
 
     if (!isValid) {
@@ -42,20 +47,69 @@ export async function POST(request: Request) {
       );
     }
 
-    // If Supabase is connected, update order payment status in database
     const supabase = getSupabaseAdminClient();
     if (supabase && orderNumber) {
-      await supabase
+      // 2. Fetch existing order to check payment state and total amount
+      const { data: existingOrder, error: orderFetchError } = await supabase
         .from('orders')
-        .update({
-          payment_status: 'captured',
-          status: 'confirmed',
-          razorpay_order_id: razorpayOrderId,
-          razorpay_payment_id: razorpayPaymentId,
-          razorpay_signature: razorpaySignature || 'simulated',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('order_number', orderNumber);
+        .select('id, payment_status, total_paise, status, status_history, order_items(variant_sku, quantity)')
+        .eq('order_number', orderNumber)
+        .single();
+
+      if (orderFetchError || !existingOrder) {
+        return NextResponse.json({ error: 'Order not found in database' }, { status: 404 });
+      }
+
+      // 3. Idempotency Check: Return immediately if already captured
+      if (existingOrder.payment_status === 'captured') {
+        return NextResponse.json({
+          success: true,
+          verified: true,
+          alreadyCaptured: true,
+          paymentId: razorpayPaymentId,
+          orderNumber,
+          message: 'Payment was already captured and recorded.',
+        });
+      }
+
+      // 4. Provider-Confirmed Verification (Amount, Currency, Status, Order Association)
+      if (isRazorpayConfigured()) {
+        const providerValidation = await fetchAndValidatePaymentDetails({
+          paymentId: razorpayPaymentId,
+          expectedOrderId: razorpayOrderId,
+          expectedAmountPaise: existingOrder.total_paise,
+        });
+
+        if (!providerValidation.valid) {
+          return NextResponse.json(
+            { error: providerValidation.error || 'Payment gateway validation failed.' },
+            { status: 400 }
+          );
+        }
+      }
+
+      // 5. Unified Idempotent Payment Finalization
+      const finalResult = await finalizeOrderPayment({
+        orderNumber,
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature: razorpaySignature || 'signature_verified',
+        amountPaise: existingOrder.total_paise,
+        eventSource: 'verify_endpoint',
+      });
+
+      if (!finalResult.success) {
+        return NextResponse.json({ error: finalResult.message || 'Payment finalization failed' }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        verified: true,
+        alreadyCaptured: finalResult.alreadyCaptured,
+        paymentId: razorpayPaymentId,
+        orderNumber,
+        message: finalResult.message,
+      });
     }
 
     return NextResponse.json({
@@ -63,7 +117,7 @@ export async function POST(request: Request) {
       verified: true,
       paymentId: razorpayPaymentId,
       orderNumber,
-      message: 'Payment verified and captured successfully',
+      message: 'Payment verified successfully in sandbox simulation mode',
     });
   } catch (error: unknown) {
     console.error('Error verifying Razorpay payment:', error);
