@@ -36,6 +36,7 @@
   ],
   "exclude": [
     "node_modules",
-    "falcon-agent-kit"
+    "falcon-agent-kit",
+    "open-next.config.ts"
   ]
 }

@@ -39,4 +39,7 @@ supabase/bootstrap.sql
 supabase/.branches/
 supabase/.temp/
 
-
+# Cloudflare OpenNext & Wrangler
+.open-next/
+.wrangler/
+.dev.vars
