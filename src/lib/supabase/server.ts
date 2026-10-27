@@ -5,9 +5,11 @@ import { StaffRole } from '@/lib/types';
 import { AdminDataService } from '@/lib/adminDataStore';
 import { hasPermission, Permission, CORE_STAFF_ROLES } from '@/lib/rbac';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config';
+ 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || SUPABASE_ANON_KEY;
 
 export interface StaffProfile {
   id: string;

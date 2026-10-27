@@ -50,8 +50,8 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wkkoviqhmccjnocjfudq.supabase.co';
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indra292aXFobWNjam5vY2pmdWRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MTY0ODYsImV4cCI6MjEwNzI5MjQ4Nn0.MK9cn5kqom-GvaZTV-7__imhPd-Y_2r2rH3TOi0Zdfc';
 
   if (!supabaseUrl || !supabaseAnonKey) {
     if (isAdminApi) {
