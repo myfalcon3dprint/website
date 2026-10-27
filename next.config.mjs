@@ -19,6 +19,7 @@ if (process.env.TEST_SERVER_MODE === 'isolated_local') {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   reactStrictMode: true,
   serverExternalPackages: ['@supabase/supabase-js', '@supabase/ssr'],
   images: {
