@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCart, useProducts, OPEN_CART_EVENT } from '@/lib/store';
+import { Product } from '@/lib/types';
 import { useAuthUser } from '@/lib/supabase/auth';
 import { formatINR } from '@/lib/money';
 import {
@@ -105,7 +106,7 @@ export default function Header() {
   // Filter products for quick search
   const searchResults = searchQuery.trim()
     ? products
-        .filter((p) => {
+        .filter((p: Product) => {
           if (p.isPublished === false || p.archivedAt) return false;
           const q = searchQuery.toLowerCase();
           return (
@@ -205,7 +206,7 @@ export default function Header() {
               onClick={() => setIsSearchOpen(true)}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsSearchOpen(true); }}
+              onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter' || e.key === ' ') setIsSearchOpen(true); }}
               style={{
                 flex: '1',
                 maxWidth: '480px',
@@ -698,8 +699,8 @@ export default function Header() {
                 aria-label="Search products"
                 placeholder="Search planters, miniatures, desk organizers, models..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(event) => {
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
                   if (event.key === 'Enter' && searchQuery.trim()) {
                     setIsSearchOpen(false);
                     router.push(`/catalog?query=${encodeURIComponent(searchQuery.trim())}`);
@@ -820,7 +821,7 @@ export default function Header() {
                   </Link>
                 </div>
               ) : (
-                searchResults.map((product) => {
+                searchResults.map((product: Product) => {
                   const firstVariant = product.variants[0];
                   return (
                     <div
@@ -828,7 +829,7 @@ export default function Header() {
                       onClick={() => handleSelectSearchResult(product.slug)}
                       role="button"
                       tabIndex={0}
-                      onKeyDown={(e) => {
+                      onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => {
                         if (e.key === 'Enter') handleSelectSearchResult(product.slug);
                       }}
                       style={{
@@ -840,8 +841,8 @@ export default function Header() {
                         borderBottom: '1px solid var(--border-subtle)',
                         transition: 'background var(--duration-fast) ease',
                       }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-hover)')}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                      onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => (e.currentTarget.style.background = 'var(--surface-hover)')}
+                      onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => (e.currentTarget.style.background = 'transparent')}
                     >
                       <div
                         style={{
