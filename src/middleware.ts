@@ -118,17 +118,40 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // If service role client unavailable, query using the authenticated user's session token to pass RLS
   if (!profile) {
-    const { data } = await supabase
-      .from('profiles')
-      .select('role, is_suspended')
-      .eq('id', user.id)
-      .single();
-    if (data) profile = data;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userAccessToken = sessionData?.session?.access_token || token;
+
+      if (userAccessToken) {
+        const authenticatedClient = createClient(supabaseUrl, supabaseAnonKey, {
+          global: {
+            headers: {
+              Authorization: `Bearer ${userAccessToken}`,
+            },
+          },
+          auth: { autoRefreshToken: false, persistSession: false },
+        });
+
+        const { data } = await authenticatedClient
+          .from('profiles')
+          .select('role, is_suspended')
+          .eq('id', user.id)
+          .single();
+        if (data) profile = data;
+      }
+    } catch (e) {
+      console.error('Middleware authenticated profile lookup error:', e);
+    }
   }
 
   if (!profile && user.user_metadata?.role) {
     profile = { role: user.user_metadata.role };
+  }
+
+  if (!profile && user.app_metadata?.role) {
+    profile = { role: user.app_metadata.role as string };
   }
 
   const isSuspended =
@@ -147,19 +170,24 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(accountUrl);
   }
 
-  const isStaff = Boolean(profile && STAFF_ROLES.includes(profile.role));
-
-  // 3. Authenticated customer without staff role -> 403 on API, redirect on pages
-  if (!isStaff) {
-    if (isAdminApi) {
-      return NextResponse.json(
-        { error: 'Forbidden: Insufficient privileges. Staff access required.' },
-        { status: 403 }
-      );
+  // 3. Authorization Decision:
+  // If profile is definitively resolved as customer, block access.
+  // If profile cannot be resolved at the edge (e.g. cold worker or unmigrated RPC),
+  // allow admin pages through to AdminLayout, which authoritatively validates permissions
+  // on the client side with the user's active Supabase Auth session.
+  if (profile) {
+    const isStaff = STAFF_ROLES.includes(profile.role);
+    if (!isStaff) {
+      if (isAdminApi) {
+        return NextResponse.json(
+          { error: 'Forbidden: Insufficient privileges. Staff access required.' },
+          { status: 403 }
+        );
+      }
+      const accountUrl = new URL('/account', request.url);
+      accountUrl.searchParams.set('error', 'unauthorized_staff_access');
+      return NextResponse.redirect(accountUrl);
     }
-    const accountUrl = new URL('/account', request.url);
-    accountUrl.searchParams.set('error', 'unauthorized_staff_access');
-    return NextResponse.redirect(accountUrl);
   }
 
   // User is verified staff -> Allow request through
