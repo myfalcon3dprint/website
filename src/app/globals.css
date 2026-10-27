@@ -1469,6 +1469,7 @@ body:has(.admin-layout-root) aside[aria-label="Staff Access Badge"] {
 .gold-accent-text {
   background: linear-gradient(135deg, #E8590C 0%, #F59E0B 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
