@@ -32,6 +32,9 @@ export async function GET() {
       .order('created_at', { ascending: false });
 
     if (error) {
+      if (error.code === 'PGRST205' || error.message.includes('schema cache') || error.message.includes('does not exist')) {
+        return NextResponse.json({ invitations: [] });
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
