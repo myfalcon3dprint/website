@@ -1,6 +1,56 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient, getAuthenticatedUserSession, recordAuditLog } from '@/lib/supabase/server';
 
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const email = searchParams.get('email');
+  const token = searchParams.get('token');
+
+  if (!email && !token) {
+    return NextResponse.json({ error: 'Email or token parameter required' }, { status: 400 });
+  }
+
+  const supabase = getSupabaseAdminClient();
+  if (!supabase) {
+    return NextResponse.json({ error: 'Database service unavailable' }, { status: 500 });
+  }
+
+  try {
+    let query = supabase.from('staff_invitations').select('id, email, role, status, expires_at, created_at');
+    if (token) {
+      query = query.eq('token', token.trim());
+    } else if (email) {
+      query = query.ilike('email', email.trim());
+    }
+
+    const { data: invite, error } = await query.order('created_at', { ascending: false }).limit(1).maybeSingle();
+
+    if (error) {
+      if (error.code === 'PGRST205' || error.message.includes('schema cache')) {
+        return NextResponse.json({ found: false, unmigrated: true });
+      }
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!invite) {
+      return NextResponse.json({ found: false });
+    }
+
+    return NextResponse.json({
+      found: true,
+      id: invite.id,
+      email: invite.email,
+      role: invite.role,
+      status: invite.status,
+      expiresAt: invite.expires_at,
+      isExpired: new Date(invite.expires_at).getTime() < Date.now(),
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to query invitation';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   const session = await getAuthenticatedUserSession();
   if (!session.user || !session.user.email) {
@@ -17,40 +67,45 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { token } = body;
+    const token = typeof body.token === 'string' ? body.token.trim() : null;
+    const targetEmail = (typeof body.email === 'string' ? body.email.trim() : session.user.email).toLowerCase();
 
-    if (!token || typeof token !== 'string') {
-      return NextResponse.json({ error: 'Invitation token is required.' }, { status: 400 });
-    }
+    // 1. Try PostgreSQL RPC procedure if token is available
+    if (token) {
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc(
+          'accept_staff_invitation',
+          {
+            p_token: token,
+            p_user_id: session.user.id,
+          }
+        );
 
-    // 1. Try PostgreSQL RPC procedure first (enforces transactional single redemption)
-    try {
-      const { data: rpcData, error: rpcError } = await supabase.rpc(
-        'accept_staff_invitation',
-        {
-          p_token: token.trim(),
-          p_user_id: session.user.id,
+        if (!rpcError && rpcData) {
+          return NextResponse.json({
+            success: true,
+            role: rpcData.role,
+            email: rpcData.email,
+            message: `Staff invitation successfully accepted. Account upgraded to ${rpcData.role}.`,
+          });
         }
-      );
-
-      if (!rpcError && rpcData) {
-        return NextResponse.json({
-          success: true,
-          role: rpcData.role,
-          email: rpcData.email,
-          message: `Staff invitation successfully accepted. Account upgraded to ${rpcData.role}.`,
-        });
+      } catch {
+        // Fallback if RPC unmigrated in database
       }
-    } catch {
-      // Fallback if RPC unmigrated in database
     }
 
-    // 2. Fallback: Defensively query invitation, check ownership, and redeem atomically
-    const { data: invite, error: fetchErr } = await supabase
-      .from('staff_invitations')
-      .select('*')
-      .eq('token', token.trim())
-      .single();
+    // 2. Query invitation by token or authenticated email
+    let query = supabase.from('staff_invitations').select('*');
+    if (token) {
+      query = query.eq('token', token);
+    } else {
+      query = query.ilike('email', targetEmail);
+    }
+
+    const { data: invite, error: fetchErr } = await query
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (fetchErr || !invite) {
       return NextResponse.json(
