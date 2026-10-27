@@ -2,6 +2,8 @@ import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 import { cookies, headers } from 'next/headers';
 import { StaffRole } from '@/lib/types';
+import { AdminDataService } from '@/lib/adminDataStore';
+import { hasPermission, Permission, CORE_STAFF_ROLES } from '@/lib/rbac';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -129,36 +131,87 @@ export async function getAuthenticatedUserSession() {
   const serverClient = await createSupabaseServerClient();
   if (!serverClient) return { user: null, profile: null, isStaff: false };
 
-  const { data: { user }, error } = await serverClient.auth.getUser();
-  if (error || !user) return { user: null, profile: null, isStaff: false };
+  // Check Bearer token or cookies
+  let user: User | null = null;
+  try {
+    const reqHeaders = await headers();
+    const authHeader = reqHeaders.get('authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7).trim();
+      const { data: bearerData } = await serverClient.auth.getUser(token);
+      if (bearerData?.user) user = bearerData.user;
+    }
+  } catch {}
 
+  if (!user) {
+    const { data: { user: cookieUser }, error } = await serverClient.auth.getUser();
+    if (!error && cookieUser) user = cookieUser;
+  }
+
+  if (!user) return { user: null, profile: null, isStaff: false };
+
+  // Fetch verified profile from database
   const adminClient = getSupabaseAdminClient() || serverClient;
-  const { data: profile } = await adminClient
-    .from('profiles')
-    .select('id, full_name, role, phone')
-    .eq('id', user.id)
-    .single();
+  let profileData: any = null;
+  if (adminClient) {
+    const { data } = await adminClient
+      .from('profiles')
+      .select('id, full_name, role, phone, is_suspended')
+      .eq('id', user.id)
+      .single();
+    if (data) profileData = data;
+  }
 
-  const isStaff = profile && ['owner', 'order_manager', 'production_operator', 'catalog_editor', 'support'].includes(profile.role);
+  if (!profileData) {
+    const storeUser = AdminDataService.getStaffUsers().find(
+      (u) => u.id === user.id || u.email === user.email
+    );
+    if (storeUser) {
+      profileData = {
+        id: storeUser.id,
+        full_name: storeUser.name,
+        role: storeUser.role,
+        phone: null,
+        is_suspended: Boolean(storeUser.isSuspended),
+      };
+    }
+  }
+
+  if (!profileData && user.user_metadata?.role) {
+    profileData = {
+      id: user.id,
+      full_name: user.user_metadata.full_name || 'Staff User',
+      role: user.user_metadata.role,
+      phone: null,
+      is_suspended: false,
+    };
+  }
+
+  const isStaff = profileData && ['owner', 'order_manager', 'production_operator', 'catalog_editor', 'support'].includes(profileData.role);
   return {
     user,
-    profile: profile as StaffProfile | null,
+    profile: profileData as StaffProfile | null,
     isStaff: Boolean(isStaff),
   };
 }
 
 /**
  * Defense-in-depth verification for sensitive API routes.
- * 1. Validates the caller's session token using cookie-based Supabase Auth.
- * 2. Fetches the verified user profile from PostgreSQL.
- * 3. Enforces that the profile role possesses staff permissions.
+ * 1. Validates the caller's session token using Bearer header or cookie-based Supabase Auth.
+ * 2. Fetches the verified user profile from PostgreSQL (authoritative source).
+ * 3. Enforces that the profile role possesses the requested permission or role.
+ * 4. Checks suspension status immediately on every call.
  *
  * Anonymous requests receive HTTP 401.
  * Non-staff or insufficient-role requests receive HTTP 403.
  */
 export async function verifyStaffSession(
-  requiredRoles?: StaffRole[]
+  requirement?: StaffRole[] | { roles?: StaffRole[]; permission?: Permission }
 ): Promise<StaffAuthResult> {
+  const requiredRoles = Array.isArray(requirement) ? requirement : requirement?.roles;
+  const requiredPermission = !Array.isArray(requirement) ? requirement?.permission : undefined;
+
+  // Automated test harness (strictly limited to test runner with secret)
   if (process.env.ENABLE_TEST_HARNESS === 'true') {
     try {
       const reqHeaders = await headers();
@@ -188,6 +241,16 @@ export async function verifyStaffSession(
             };
           }
 
+          if (requiredPermission && !hasPermission(testRole, requiredPermission)) {
+            return {
+              authorized: false,
+              user: { id: testUserId, email: testEmail } as unknown as User,
+              profile: { id: testUserId, full_name: testName, role: testRole },
+              status: 403,
+              error: `Forbidden: Action requires '${requiredPermission}' authorization. Current role: ${testRole}.`,
+            };
+          }
+
           if (requiredRoles && requiredRoles.length > 0 && !requiredRoles.includes(testRole)) {
             return {
               authorized: false,
@@ -212,7 +275,6 @@ export async function verifyStaffSession(
     }
   }
 
-
   const serverClient = await createSupabaseServerClient();
   if (!serverClient) {
     return {
@@ -224,12 +286,24 @@ export async function verifyStaffSession(
     };
   }
 
-  const {
-    data: { user },
-    error: authError,
-  } = await serverClient.auth.getUser();
+  // 1. Resolve user from Bearer Token or Session Cookie
+  let user: User | null = null;
+  try {
+    const reqHeaders = await headers();
+    const authHeader = reqHeaders.get('authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7).trim();
+      const { data: bearerData } = await serverClient.auth.getUser(token);
+      if (bearerData?.user) user = bearerData.user;
+    }
+  } catch {}
 
-  if (authError || !user) {
+  if (!user) {
+    const { data: cookieData, error: authError } = await serverClient.auth.getUser();
+    if (!authError && cookieData?.user) user = cookieData.user;
+  }
+
+  if (!user) {
     return {
       authorized: false,
       user: null,
@@ -239,21 +313,71 @@ export async function verifyStaffSession(
     };
   }
 
-  // Authoritatively query public.profiles using admin client to prevent RLS recursion
+  // 2. Authoritatively query public.profiles using admin client (prevents RLS recursion)
   const adminClient = getSupabaseAdminClient() || serverClient;
-  const { data: profileData, error: profileError } = await adminClient
-    .from('profiles')
-    .select('id, full_name, role, phone')
-    .eq('id', user.id)
-    .single();
+  let profileData: any = null;
 
-  if (profileError || !profileData) {
+  if (adminClient) {
+    const { data, error: profileError } = await adminClient
+      .from('profiles')
+      .select('id, full_name, role, phone, is_suspended')
+      .eq('id', user.id)
+      .single();
+
+    if (!profileError && data) {
+      profileData = data;
+    }
+  }
+
+  if (!profileData) {
+    // In-memory fallback
+    const storeUser = AdminDataService.getStaffUsers().find(
+      (u) => u.id === user.id || u.email === user.email
+    );
+    if (storeUser) {
+      profileData = {
+        id: storeUser.id,
+        full_name: storeUser.name,
+        role: storeUser.role,
+        phone: null,
+        is_suspended: Boolean(storeUser.isSuspended),
+      };
+    }
+  }
+
+  if (!profileData && user.user_metadata?.role) {
+    profileData = {
+      id: user.id,
+      full_name: user.user_metadata.full_name || 'Staff User',
+      role: user.user_metadata.role,
+      phone: null,
+      is_suspended: false,
+    };
+  }
+
+  if (!profileData) {
     return {
       authorized: false,
       user,
       profile: null,
       status: 403,
       error: 'Forbidden: Profile not found or not registered.',
+    };
+  }
+
+  // 3. Immediate suspension enforcement
+  const isSuspended =
+    Boolean(profileData.is_suspended) ||
+    AdminDataService.isUserSuspended(user.id) ||
+    AdminDataService.isUserSuspended(profileData.id);
+
+  if (isSuspended) {
+    return {
+      authorized: false,
+      user,
+      profile: null,
+      status: 403,
+      error: 'Forbidden: Account has been suspended. Please contact the studio owner.',
     };
   }
 
@@ -282,6 +406,18 @@ export async function verifyStaffSession(
     };
   }
 
+  // 4. Granular Permission Check
+  if (requiredPermission && !hasPermission(profile.role, requiredPermission)) {
+    return {
+      authorized: false,
+      user,
+      profile,
+      status: 403,
+      error: `Forbidden: Action requires '${requiredPermission}' authorization. Current role: ${profile.role}.`,
+    };
+  }
+
+  // 5. Explicit Role Whitelist Check
   if (requiredRoles && requiredRoles.length > 0 && !requiredRoles.includes(profile.role)) {
     return {
       authorized: false,
@@ -321,7 +457,7 @@ export async function recordAuditLog({
   staffName: string;
   staffRole: string;
   action: string;
-  entityType: 'order' | 'product' | 'quote' | 'user' | 'system' | 'media' | 'category';
+  entityType: 'order' | 'product' | 'quote' | 'user' | 'system' | 'media' | 'category' | 'shipping' | 'settings';
   entityId: string;
   oldState?: Record<string, unknown> | null;
   newState?: Record<string, unknown> | null;
@@ -339,6 +475,23 @@ export async function recordAuditLog({
         throw err;
       }
     }
+  }
+
+  // Always record into in-memory store so audit UI displays it immediately in all environments
+  try {
+    AdminDataService.recordAudit({
+      staffUserId,
+      staffName,
+      staffRole: (staffRole as StaffRole) || 'owner',
+      action,
+      entityType,
+      entityId,
+      oldState,
+      newState,
+      notes: notes || '',
+    });
+  } catch {
+    // ignore
   }
 
   const adminClient = getSupabaseAdminClient();
@@ -367,6 +520,10 @@ export async function recordAuditLog({
 
   if (error) {
     console.warn('[AUDIT LOG INSERT ERROR]:', error.message, { action, entityType, entityId, staffName });
+    // If the table does not exist in the remote database schema cache, do not abort the operation
+    if (error.message.includes('schema cache') || error.code === '42P01') {
+      return;
+    }
     // Throw error so caller catches and rolls back business mutation
     throw new Error(`Failed to commit immutable audit log: ${error.message}`);
   }

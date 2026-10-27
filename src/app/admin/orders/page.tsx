@@ -9,7 +9,7 @@ import {
   ShoppingBag, Search, Filter, CheckCircle2, AlertCircle, 
   ArrowRight, Edit3, Truck, ShieldAlert, ChevronDown, ChevronUp,
   Cpu, CheckSquare, Square, RefreshCw, DollarSign, ChevronLeft, ChevronRight,
-  SlidersHorizontal, Plus, Minus, Trash2, X
+  SlidersHorizontal, Plus, Minus, Trash2, X, Download, Ban, UserPlus
 } from 'lucide-react';
 
 const ALL_STATUSES: OrderStatus[] = [
@@ -71,10 +71,37 @@ export default function AdminOrdersPage() {
   const [isCorrectingItem, setIsCorrectingItem] = useState<boolean>(false);
   const [reconciliationNote, setReconciliationNote] = useState<string | null>(null);
 
+  // Manual Order Creation State
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [newOrderForm, setNewOrderForm] = useState({
+    customerName: '',
+    customerPhone: '',
+    customerEmail: '',
+    addressLine1: '',
+    city: 'Nashik',
+    state: 'Maharashtra',
+    pinCode: '422009',
+    itemTitle: 'Precision Planetary Gearbox Kit',
+    itemSku: 'FAL-GEAR-PLA-BLK',
+    itemQuantity: 1,
+    unitPriceINR: 1499,
+    stockType: 'made_to_order' as 'ready_stock' | 'made_to_order',
+    paymentStatus: 'pending' as 'pending' | 'captured' | 'additional_payment_due',
+    paymentMethod: 'Razorpay UPI/Card' as 'Razorpay UPI/Card' | 'Cash on Delivery (Local Nashik)',
+    status: 'confirmed' as OrderStatus,
+  });
+
+  // Explicit Cancellation Modal State
+  const [cancellingOrder, setCancellingOrder] = useState<Order | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>('');
+  const [isCancelling, setIsCancelling] = useState(false);
+
   // Permissions
   const canUpdateStatus = ['owner', 'order_manager', 'production_operator'].includes(staffRole);
   const canEditAddress = ['owner', 'order_manager'].includes(staffRole);
   const canApproveRefund = staffRole === 'owner';
+  const canCreateOrder = ['owner', 'order_manager'].includes(staffRole);
 
   // Fetch orders from live API
   const fetchOrders = useCallback(async () => {
@@ -250,6 +277,154 @@ export default function AdminOrdersPage() {
     }
   };
 
+  // Handle Manual Order Creation
+  const handleCreateManualOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newOrderForm.customerName.trim() || !newOrderForm.customerPhone.trim()) {
+      alert('Please fill out customer name and phone number.');
+      return;
+    }
+
+    setIsCreatingOrder(true);
+    try {
+      const unitPricePaise = Math.round(Number(newOrderForm.unitPriceINR) * 100);
+      const quantity = Math.max(1, Number(newOrderForm.itemQuantity) || 1);
+      const subtotalPaise = unitPricePaise * quantity;
+      const orderNumber = `FAL-MAN-${Date.now().toString().slice(-6)}`;
+
+      const payload = {
+        orderNumber,
+        customerName: newOrderForm.customerName.trim(),
+        customerPhone: newOrderForm.customerPhone.trim(),
+        customerEmail: newOrderForm.customerEmail.trim() || `${newOrderForm.customerPhone.trim().replace(/[^0-9]/g, '')}@customer.falcon3dprints.com`,
+        shippingAddress: {
+          fullName: newOrderForm.customerName.trim(),
+          phone: newOrderForm.customerPhone.trim(),
+          addressLine1: newOrderForm.addressLine1.trim() || 'Studio Pickup, Sector 4, CIDCO',
+          city: newOrderForm.city.trim() || 'Nashik',
+          state: newOrderForm.state.trim() || 'Maharashtra',
+          pinCode: newOrderForm.pinCode.trim() || '422009',
+        },
+        items: [
+          {
+            productTitle: newOrderForm.itemTitle.trim(),
+            variantSku: newOrderForm.itemSku.trim(),
+            variantDetails: 'Custom Studio Configuration',
+            quantity,
+            unitPricePaise,
+            totalPricePaise: subtotalPaise,
+            stockType: newOrderForm.stockType,
+          },
+        ],
+        subtotalPaise,
+        shippingPaise: 0,
+        taxPaise: 0,
+        totalPaise: subtotalPaise,
+        paymentStatus: newOrderForm.paymentStatus,
+        paymentMethod: newOrderForm.paymentMethod,
+        status: newOrderForm.status,
+      };
+
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to create manual order');
+      }
+
+      setSuccessMessage(`Order #${orderNumber} created successfully! Total: ₹${(subtotalPaise / 100).toFixed(2)}`);
+      setIsCreateModalOpen(false);
+      setNewOrderForm({
+        customerName: '',
+        customerPhone: '',
+        customerEmail: '',
+        addressLine1: '',
+        city: 'Nashik',
+        state: 'Maharashtra',
+        pinCode: '422009',
+        itemTitle: 'Precision Planetary Gearbox Kit',
+        itemSku: 'FAL-GEAR-PLA-BLK',
+        itemQuantity: 1,
+        unitPriceINR: 1499,
+        stockType: 'made_to_order',
+        paymentStatus: 'pending',
+        paymentMethod: 'Razorpay UPI/Card',
+        status: 'confirmed',
+      });
+      fetchOrders();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to create order';
+      alert(`Error creating order: ${msg}`);
+    } finally {
+      setIsCreatingOrder(false);
+    }
+  };
+
+  // Commit Order Cancellation
+  const handleCommitCancellation = async () => {
+    if (!cancellingOrder) return;
+    if (!cancelReason.trim() || cancelReason.trim().length < 5) {
+      alert('Please specify a cancellation reason (minimum 5 characters) for audit trail.');
+      return;
+    }
+
+    setIsCancelling(true);
+    try {
+      const res = await fetch(`/api/orders/${cancellingOrder.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          newStatus: 'cancelled',
+          statusNote: `Cancelled by staff: ${cancelReason.trim()}. Note: cancellation does not automatically issue a financial refund.`,
+          lastKnownUpdatedAt: cancellingOrder.updatedAt,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to cancel order');
+      }
+
+      setSuccessMessage(`Order #${cancellingOrder.orderNumber} marked as CANCELLED. (Financial refund must be processed separately by Studio Owner if applicable).`);
+      setCancellingOrder(null);
+      setCancelReason('');
+      fetchOrders();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error cancelling order';
+      alert(`Error: ${msg}`);
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  // Export Filtered Orders CSV
+  const handleExportFilteredCSV = () => {
+    if (orders.length === 0) {
+      alert('No orders to export matching current filters.');
+      return;
+    }
+
+    let csvContent = 'Order Number,Date,Customer,Phone,City,Items Count,Total (INR),Payment Status,Payment Method,Fulfillment Status\n';
+    orders.forEach((o) => {
+      const inr = (o.totalPaise / 100).toFixed(2);
+      const itemsCount = o.items ? o.items.reduce((s, it) => s + (it.quantity || 1), 0) : 1;
+      csvContent += `"${o.orderNumber}","${new Date(o.createdAt).toLocaleDateString()}","${o.customerName}","${o.customerPhone}","${o.shippingAddress?.city || ''}","${itemsCount}","${inr}","${o.paymentStatus}","${o.paymentMethod}","${o.status}"\n`;
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `falcon-orders-export-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Open Item Correction Modal and initialize staged quantities
   const openCorrectionModal = (ord: Order) => {
     setCorrectingOrder(ord);
@@ -366,14 +541,34 @@ export default function AdminOrdersPage() {
           </p>
         </div>
 
-        <button
-          onClick={fetchOrders}
-          disabled={isLoading}
-          className="btn btn-outline"
-          style={{ padding: '8px 14px', fontSize: '0.8125rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-        >
-          <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Refresh Orders
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            onClick={handleExportFilteredCSV}
+            className="btn btn-outline"
+            style={{ padding: '8px 14px', fontSize: '0.8125rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Download size={14} /> Export CSV
+          </button>
+
+          {canCreateOrder && (
+            <button
+              onClick={() => setIsCreateModalOpen(true)}
+              className="btn btn-primary"
+              style={{ padding: '8px 14px', fontSize: '0.8125rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Plus size={14} /> Create Manual Order
+            </button>
+          )}
+
+          <button
+            onClick={fetchOrders}
+            disabled={isLoading}
+            className="btn btn-outline"
+            style={{ padding: '8px 14px', fontSize: '0.8125rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Refresh Orders
+          </button>
+        </div>
       </div>
 
       {successMessage && (
@@ -620,6 +815,20 @@ export default function AdminOrdersPage() {
                                 title="Authorize Refund"
                               >
                                 <DollarSign size={13} /> Refund
+                              </button>
+                            )}
+
+                            {canUpdateStatus && !['cancelled', 'delivered'].includes(ord.status) && (
+                              <button
+                                onClick={() => {
+                                  setCancellingOrder(ord);
+                                  setCancelReason('Customer requested cancellation prior to dispatch');
+                                }}
+                                className="btn btn-outline"
+                                style={{ padding: '4px 8px', fontSize: '0.72rem', color: '#EF4444' }}
+                                title="Cancel Order (Does not auto-refund)"
+                              >
+                                <Ban size={13} /> Cancel
                               </button>
                             )}
 
@@ -1189,6 +1398,375 @@ export default function AdminOrdersPage() {
           </div>
         );
       })()}
+
+      {/* Create Manual Order Modal */}
+      {isCreateModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem',
+        }}>
+          <div style={{
+            background: '#FFFFFF',
+            border: '1px solid #E2E8F0',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '640px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            padding: '2rem',
+            boxShadow: '0 20px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.08)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <ShoppingBag size={20} color="#C2410C" />
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: '#0F172A' }}>
+                  Create Manual Order
+                </h2>
+              </div>
+              <button
+                onClick={() => setIsCreateModalOpen(false)}
+                style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateManualOrder}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Customer Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="input"
+                    placeholder="e.g. Anand Mahindra"
+                    value={newOrderForm.customerName}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, customerName: e.target.value })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Customer Mobile Number *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="input"
+                    placeholder="+91 98220 12345"
+                    value={newOrderForm.customerPhone}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, customerPhone: e.target.value })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Email Address (Optional)
+                </label>
+                <input
+                  type="email"
+                  className="input"
+                  placeholder="anand@example.com"
+                  value={newOrderForm.customerEmail}
+                  onChange={(e) => setNewOrderForm({ ...newOrderForm, customerEmail: e.target.value })}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Shipping Address / Studio Pickup
+                  </label>
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="Street or Studio Pickup"
+                    value={newOrderForm.addressLine1}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, addressLine1: e.target.value })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    City
+                  </label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={newOrderForm.city}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, city: e.target.value })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    PIN Code
+                  </label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={newOrderForm.pinCode}
+                    onChange={(e) => setNewOrderForm({ ...newOrderForm, pinCode: e.target.value })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border-decor)', paddingTop: '1rem', marginBottom: '1.25rem' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: '0.75rem' }}>
+                  Order Line Item
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      Product / Custom Job Title
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      className="input"
+                      value={newOrderForm.itemTitle}
+                      onChange={(e) => setNewOrderForm({ ...newOrderForm, itemTitle: e.target.value })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      Variant SKU
+                    </label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={newOrderForm.itemSku}
+                      onChange={(e) => setNewOrderForm({ ...newOrderForm, itemSku: e.target.value })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      Quantity
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      className="input"
+                      value={newOrderForm.itemQuantity}
+                      onChange={(e) => setNewOrderForm({ ...newOrderForm, itemQuantity: parseInt(e.target.value, 10) || 1 })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      Unit Price (₹ INR)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      className="input"
+                      value={newOrderForm.unitPriceINR}
+                      onChange={(e) => setNewOrderForm({ ...newOrderForm, unitPriceINR: parseFloat(e.target.value) || 0 })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      Inventory Type
+                    </label>
+                    <select
+                      className="input"
+                      value={newOrderForm.stockType}
+                      onChange={(e) => setNewOrderForm({ ...newOrderForm, stockType: e.target.value as any })}
+                      style={{ width: '100%' }}
+                    >
+                      <option value="made_to_order">Made to Order (3D Print Queue)</option>
+                      <option value="ready_stock">Ready Stock (Physical Inventory)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border-decor)', paddingTop: '1rem', marginBottom: '1.5rem' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: '0.75rem' }}>
+                  Payment & Fulfillment State
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      Payment Status
+                    </label>
+                    <select
+                      className="input"
+                      value={newOrderForm.paymentStatus}
+                      onChange={(e) => setNewOrderForm({ ...newOrderForm, paymentStatus: e.target.value as any })}
+                      style={{ width: '100%' }}
+                    >
+                      <option value="pending">Unpaid (Payment Pending)</option>
+                      <option value="captured">Paid in Full (Captured)</option>
+                      <option value="additional_payment_due">Partial Payment (Balance Due)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      Payment Method
+                    </label>
+                    <select
+                      className="input"
+                      value={newOrderForm.paymentMethod}
+                      onChange={(e) => setNewOrderForm({ ...newOrderForm, paymentMethod: e.target.value as any })}
+                      style={{ width: '100%' }}
+                    >
+                      <option value="Razorpay UPI/Card">Razorpay UPI / Online</option>
+                      <option value="Cash on Delivery (Local Nashik)">Cash on Delivery (Local Nashik)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{
+                  padding: '0.75rem 1rem',
+                  borderRadius: '8px',
+                  background: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}>
+                  <span style={{ fontSize: '0.875rem', color: '#475569', fontWeight: 600 }}>Calculated Order Total:</span>
+                  <strong style={{ fontSize: '1.25rem', color: '#15803D' }}>
+                    {formatINR(Math.round(Number(newOrderForm.unitPriceINR) * Number(newOrderForm.itemQuantity || 1) * 100))}
+                  </strong>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className="btn btn-outline"
+                  style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingOrder}
+                  className="btn btn-primary"
+                  style={{ padding: '8px 20px', fontSize: '0.85rem' }}
+                >
+                  {isCreatingOrder ? 'Creating Order...' : 'Create Order'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Order Modal */}
+      {cancellingOrder && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem',
+        }}>
+          <div style={{
+            background: '#FFFFFF',
+            border: '1px solid #E2E8F0',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '480px',
+            padding: '2rem',
+            boxShadow: '0 20px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.08)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#DC2626', marginBottom: '1rem' }}>
+              <Ban size={24} />
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: '#0F172A' }}>
+                Cancel Order #{cancellingOrder.orderNumber}
+              </h3>
+            </div>
+
+            <div style={{
+              padding: '0.75rem 1rem',
+              borderRadius: '8px',
+              background: '#FEF2F2',
+              border: '1px solid #FCA5A5',
+              color: '#991B1B',
+              fontSize: '0.85rem',
+              lineHeight: '1.4',
+              marginBottom: '1.25rem',
+            }}>
+              <strong>Important Financial Policy:</strong> Cancelling this order halts production and fulfillment immediately. Cancellation does <em>not</em> automatically issue a financial refund. Any required refund must be reviewed and authorized separately by the Studio Owner.
+            </div>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                Cancellation Reason * (Audit Logged, min 5 chars)
+              </label>
+              <input
+                type="text"
+                required
+                className="input"
+                placeholder="e.g. Customer cancelled order prior to 3D printing"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                style={{ width: '100%', fontSize: '0.85rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => setCancellingOrder(null)}
+                className="btn btn-outline"
+                style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+              >
+                Go Back
+              </button>
+              <button
+                type="button"
+                onClick={handleCommitCancellation}
+                disabled={isCancelling || cancelReason.trim().length < 5}
+                style={{
+                  padding: '8px 20px',
+                  background: '#EF4444',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: '#FFFFFF',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  cursor: isCancelling || cancelReason.trim().length < 5 ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isCancelling ? 'Cancelling...' : 'Confirm Cancellation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

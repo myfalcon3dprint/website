@@ -2,11 +2,18 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useAuthUser } from '@/lib/supabase/auth';
 import { ExternalLink, ShieldCheck } from 'lucide-react';
 
 export default function PreviewBanner() {
+  const pathname = usePathname();
   const { user, profile, isStaff } = useAuthUser();
+
+  // Do not display on admin portal or customer homepage
+  if (pathname?.startsWith('/admin') || pathname === '/') {
+    return null;
+  }
 
   // Only display badge if authenticated staff member
   if (!user || !isStaff) {

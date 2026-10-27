@@ -2,13 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { Product, CartItem, Order, CustomQuoteRequest, OrderStatus } from './types';
-import { INITIAL_PRODUCTS, INITIAL_ORDERS, INITIAL_QUOTES } from './mock-data';
 
 // Local storage keys
-const CART_STORAGE_KEY = 'falcon_cart_v1';
+const CART_STORAGE_KEY = 'falcon_cart_v2';
 const ORDERS_STORAGE_KEY = 'falcon_orders_v1';
 const QUOTES_STORAGE_KEY = 'falcon_quotes_v1';
-const PRODUCTS_STORAGE_KEY = 'falcon_products_v2';
+const PRODUCTS_STORAGE_KEY = 'falcon_products_v3';
 
 // Custom events for cross-component reactive updates
 const SYNC_EVENT = 'falcon_store_sync';
@@ -33,7 +32,56 @@ export function getStoredCart(): CartItem[] {
   if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(CART_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed: unknown[] = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    const catalog = getStoredProducts();
+    const sanitized: CartItem[] = [];
+
+    for (const rawItem of parsed) {
+      if (!rawItem || typeof rawItem !== 'object') continue;
+      const item = rawItem as Partial<CartItem>;
+      const product = catalog.find((p) => p.id === item.product?.id) || item.product;
+      if (!product || !product.id) continue;
+
+      const matchingVariant = product.variants?.find((v) => v.id === item.variant?.id);
+      const qty = typeof item.quantity === 'number' && item.quantity > 0 ? Math.floor(item.quantity) : 1;
+
+      if (!matchingVariant || matchingVariant.id === 'unresolved') {
+        sanitized.push({
+          id: item.id || `${product.id}_unresolved`,
+          product,
+          variant: {
+            id: 'unresolved',
+            sku: 'UNKNOWN',
+            title: 'Variant configuration unavailable — Please re-select',
+            material: 'PLA',
+            color: 'Unknown',
+            finish: 'Raw (Layered)',
+            pricePaise: product.basePricePaise || 0,
+            dimensions: { lengthMm: 0, widthMm: 0, heightMm: 0 },
+            weightGrams: 0,
+            stockQuantity: 0,
+            leadTimeDays: 0,
+          },
+          quantity: qty,
+          needsReselection: true,
+        });
+        continue;
+      }
+
+      const stableId = `${product.id}_${matchingVariant.id}`;
+      sanitized.push({
+        id: stableId,
+        product: { ...product },
+        variant: { ...matchingVariant },
+        quantity: qty,
+        needsReselection: false,
+      });
+    }
+
+    return sanitized;
   } catch {
     return [];
   }
@@ -68,17 +116,42 @@ export function useCart() {
 
   const addToCart = (product: Product, variantId: string, quantity = 1, openDrawer = true) => {
     const variant = product.variants.find((v) => v.id === variantId) || product.variants[0];
+    const stableId = `${product.id}_${variant.id}`;
     const current = getStoredCart();
-    const existingIndex = current.findIndex((item) => item.product.id === product.id && item.variant.id === variant.id);
+    const existingIndex = current.findIndex((item) => item.id === stableId);
 
+    const maxStock = variant.leadTimeDays === 0 ? Math.max(0, variant.stockQuantity) : 99;
     let updated: CartItem[];
+
     if (existingIndex > -1) {
-      updated = [...current];
-      updated[existingIndex].quantity += quantity;
+      updated = current.map((item, idx) => {
+        if (idx === existingIndex) {
+          const nextQty = Math.min(item.quantity + quantity, maxStock);
+          return {
+            ...item,
+            quantity: nextQty,
+            variant: { ...variant },
+            product: { ...product },
+          };
+        }
+        return item;
+      });
     } else {
-      updated = [...current, { id: `${product.id}_${variant.id}`, product, variant, quantity }];
+      const initialQty = Math.min(Math.max(1, quantity), maxStock);
+      updated = [
+        ...current,
+        {
+          id: stableId,
+          product: { ...product },
+          variant: { ...variant },
+          quantity: initialQty,
+          needsReselection: false,
+        },
+      ];
     }
+
     saveStoredCart(updated);
+    setCart(updated);
     if (openDrawer) {
       openCartDrawer();
     }
@@ -90,22 +163,35 @@ export function useCart() {
       removeFromCart(cartItemId);
       return;
     }
-    const updated = current.map((item) => (item.id === cartItemId ? { ...item, quantity: newQty } : item));
+
+    const updated = current.map((item) => {
+      if (item.id !== cartItemId) return item;
+      const maxStock = item.variant.leadTimeDays === 0 ? Math.max(0, item.variant.stockQuantity) : 99;
+      const clampedQty = Math.min(newQty, maxStock);
+      return { ...item, quantity: clampedQty };
+    });
+
     saveStoredCart(updated);
+    setCart(updated);
   };
 
   const removeFromCart = (cartItemId: string) => {
     const current = getStoredCart();
     const updated = current.filter((item) => item.id !== cartItemId);
     saveStoredCart(updated);
+    setCart(updated);
   };
 
   const clearCart = () => {
     saveStoredCart([]);
+    setCart([]);
   };
 
-  const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const subtotalPaise = cart.reduce((sum, item) => sum + item.variant.pricePaise * item.quantity, 0);
+  const itemCount = cart.reduce((sum, item) => sum + (item.needsReselection ? 0 : item.quantity), 0);
+  const subtotalPaise = cart.reduce(
+    (sum, item) => sum + (item.needsReselection ? 0 : item.variant.pricePaise * item.quantity),
+    0
+  );
 
   return {
     cart,
@@ -124,12 +210,12 @@ export function useCart() {
 // Orders Store
 // ----------------------------------------------------
 export function getStoredOrders(): Order[] {
-  if (typeof window === 'undefined') return INITIAL_ORDERS;
+  if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(ORDERS_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : INITIAL_ORDERS;
+    return raw ? JSON.parse(raw) : [];
   } catch {
-    return INITIAL_ORDERS;
+    return [];
   }
 }
 
@@ -144,7 +230,7 @@ export function saveStoredOrders(orders: Order[]): void {
 }
 
 export function useOrders() {
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
+  const [orders, setOrders] = useState<Order[]>([]);
 
   useEffect(() => {
     setOrders(getStoredOrders());
@@ -243,12 +329,12 @@ export function useOrders() {
 // Quotes Store
 // ----------------------------------------------------
 export function getStoredQuotes(): CustomQuoteRequest[] {
-  if (typeof window === 'undefined') return INITIAL_QUOTES;
+  if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(QUOTES_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : INITIAL_QUOTES;
+    return raw ? JSON.parse(raw) : [];
   } catch {
-    return INITIAL_QUOTES;
+    return [];
   }
 }
 
@@ -263,7 +349,7 @@ export function saveStoredQuotes(quotes: CustomQuoteRequest[]): void {
 }
 
 export function useQuotes() {
-  const [quotes, setQuotes] = useState<CustomQuoteRequest[]>(INITIAL_QUOTES);
+  const [quotes, setQuotes] = useState<CustomQuoteRequest[]>([]);
 
   useEffect(() => {
     setQuotes(getStoredQuotes());
@@ -307,22 +393,19 @@ export function useQuotes() {
 // Products Store
 // ----------------------------------------------------
 export function getStoredProducts(): Product[] {
-  if (typeof window === 'undefined') return INITIAL_PRODUCTS;
+  if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(PRODUCTS_STORAGE_KEY);
-    if (!raw) {
-      localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(INITIAL_PRODUCTS));
-      return INITIAL_PRODUCTS;
+    if (raw === null) {
+      return [];
     }
-    const parsed: Product[] = JSON.parse(raw);
-    const hasOldImage = parsed.some((p) => p.images[0]?.startsWith('http') || p.variants.some((v) => !v.image && p.id === 'prod-001'));
-    if (hasOldImage) {
-      localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(INITIAL_PRODUCTS));
-      return INITIAL_PRODUCTS;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed as Product[];
     }
-    return parsed;
+    return [];
   } catch {
-    return INITIAL_PRODUCTS;
+    return [];
   }
 }
 
@@ -337,7 +420,7 @@ export function saveStoredProducts(products: Product[]): void {
 }
 
 export function useProducts() {
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
 
   useEffect(() => {
     setProducts(getStoredProducts());
@@ -348,7 +431,7 @@ export function useProducts() {
     fetch('/api/products')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data && data.isLiveDb && Array.isArray(data.products) && data.products.length > 0) {
+        if (data && data.isLiveDb && Array.isArray(data.products)) {
           saveStoredProducts(data.products);
           setProducts(data.products);
         }
@@ -372,5 +455,53 @@ export function useProducts() {
 
   return { products, updateProductStock };
 }
+
+// ----------------------------------------------------
+// Recently Viewed Products Store
+// ----------------------------------------------------
+const RECENTLY_VIEWED_KEY = 'falcon_recently_viewed_v1';
+
+export function getRecentlyViewedSlugs(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(RECENTLY_VIEWED_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((s) => typeof s === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function addRecentlyViewedSlug(slug: string): void {
+  if (typeof window === 'undefined' || !slug) return;
+  try {
+    const existing = getRecentlyViewedSlugs();
+    const updated = [slug, ...existing.filter((s) => s !== slug)].slice(0, 8);
+    localStorage.setItem(RECENTLY_VIEWED_KEY, JSON.stringify(updated));
+    notifyStoreUpdate();
+  } catch {
+    // Graceful fallback if storage quota exceeded or disabled
+  }
+}
+
+export function useRecentlyViewed() {
+  const [slugs, setSlugs] = useState<string[]>([]);
+  const { products } = useProducts();
+
+  useEffect(() => {
+    setSlugs(getRecentlyViewedSlugs());
+    const handleSync = () => setSlugs(getRecentlyViewedSlugs());
+    window.addEventListener(SYNC_EVENT, handleSync);
+    return () => window.removeEventListener(SYNC_EVENT, handleSync);
+  }, []);
+
+  const recentlyViewedProducts = slugs
+    .map((s) => products.find((p) => p.slug === s))
+    .filter((p): p is Product => Boolean(p));
+
+  return { recentlyViewedProducts, addRecentlyViewedSlug };
+}
+
 
 

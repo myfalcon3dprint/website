@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient, verifyStaffSession, recordAuditLog } from '@/lib/supabase/server';
+import { AdminDataService } from '@/lib/adminDataStore';
 
 export async function GET() {
   const auth = await verifyStaffSession(['owner', 'production_operator']);
@@ -9,7 +10,14 @@ export async function GET() {
 
   const supabase = getSupabaseAdminClient();
   if (!supabase) {
-    return NextResponse.json({ error: 'Database service unavailable' }, { status: 500 });
+    const printers = AdminDataService.getPrinters().map((p: any) => ({
+      id: p.id,
+      machine_name: p.name,
+      status: p.status,
+      current_job_name: p.status === 'printing' ? 'Order Print Job' : null,
+      progress_percent: p.status === 'printing' ? 65 : 0,
+    }));
+    return NextResponse.json({ machines: printers, isLiveDb: false });
   }
 
   try {

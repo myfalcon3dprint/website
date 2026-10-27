@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseAdminClient, verifyStaffSession, recordAuditLog } from '@/lib/supabase/server';
+import { getSupabaseAdminClient } from '@/lib/supabase/server';
 import { serializeProductFromDb } from '@/lib/serializers';
 
 interface RouteContext {
@@ -7,27 +7,41 @@ interface RouteContext {
 }
 
 export async function GET(request: NextRequest, context: RouteContext) {
-  const { id } = await context.params;
-  const supabase = getSupabaseAdminClient();
-  if (!supabase) {
-    return NextResponse.json({ error: 'Database service unavailable' }, { status: 500 });
+  try {
+    const { id } = await context.params;
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) {
+      return NextResponse.json({ error: 'Database service unavailable' }, { status: 500 });
+    }
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+    let query = supabase
+      .from('products')
+      .select('*, product_variants(*), categories(id, name, slug)');
+
+    if (isUuid) {
+      query = query.or(`id.eq.${id},slug.eq.${id}`);
+    } else {
+      query = query.eq('slug', id);
+    }
+
+    const { data: product, error } = await query.maybeSingle();
+
+    if (error || !product) {
+      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+    }
+
+    return NextResponse.json({ product: serializeProductFromDb(product) });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to retrieve product';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  const { data: product, error } = await supabase
-    .from('products')
-    .select('*, product_variants(*)')
-    .or(`id.eq.${id},slug.eq.${id}`)
-    .single();
-
-  if (error || !product) {
-    return NextResponse.json({ error: 'Product not found' }, { status: 404 });
-  }
-
-  return NextResponse.json({ product: serializeProductFromDb(product) });
 }
 
 export async function PUT(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
+  const { verifyStaffSession, recordAuditLog } = await import('@/lib/supabase/server');
   const auth = await verifyStaffSession(['owner', 'catalog_editor']);
   if (!auth.authorized) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -87,7 +101,16 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     if (availability !== undefined) updates.availability = availability;
     if (images !== undefined && Array.isArray(images)) updates.images = images;
     if (features !== undefined && Array.isArray(features)) updates.features = features;
-    if (specs !== undefined && typeof specs === 'object') updates.specs = specs;
+    if (body.careInstructions !== undefined) updates.care_info = String(body.careInstructions).trim();
+    if (specs !== undefined || body.includedItems !== undefined || body.dispatchInfo !== undefined) {
+      const existingSpecs = typeof specs === 'object' && specs ? specs : {};
+      updates.specs = {
+        ...existingSpecs,
+        ...(body.includedItems !== undefined ? { includedItems: body.includedItems } : {}),
+        ...(body.careInstructions !== undefined ? { careInstructions: body.careInstructions } : {}),
+        ...(body.dispatchInfo !== undefined ? { dispatchInfo: body.dispatchInfo } : {}),
+      };
+    }
     if (isPublished !== undefined) updates.is_published = Boolean(isPublished);
 
     // 3. Atomic UPDATE with optimistic concurrency checking
@@ -102,7 +125,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       updateQuery = updateQuery.eq('updated_at', lastKnownUpdatedAt);
     }
 
-    const { data: updatedProducts, error: updateErr } = await updateQuery.select('*, product_variants(*)');
+    const { data: updatedProducts, error: updateErr } = await updateQuery.select('*, product_variants(*), categories(id, name, slug)');
 
     if (updateErr) {
       return NextResponse.json({ error: updateErr.message || 'Failed to update product' }, { status: 500 });
@@ -112,7 +135,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       // Differentiate missing product (404) from concurrency version conflict (409)
       const { data: currentRecord } = await supabase
         .from('products')
-        .select('*, product_variants(*)')
+        .select('*, product_variants(*), categories(id, name, slug)')
         .eq('id', id)
         .single();
 
@@ -131,14 +154,63 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     }
 
     // 4. Reconcile Variants if provided
+    const tempIdMap: Record<string, string> = {};
+
     if (Array.isArray(variants)) {
-      const { data: existingVars } = await supabase
+      // Validate variants in submitted payload
+      const variantSkuSet = new Set<string>();
+      for (let idx = 0; idx < variants.length; idx++) {
+        const v = variants[idx];
+        const rawSku = String(v.sku || `${(updates.slug || id).toString().toUpperCase().slice(0, 8)}-${idx + 1}`).trim();
+        if (!rawSku) {
+          return NextResponse.json({ error: `Variant #${idx + 1} SKU cannot be empty` }, { status: 400 });
+        }
+        if (variantSkuSet.has(rawSku)) {
+          return NextResponse.json({ error: `Duplicate variant SKU '${rawSku}' in submission` }, { status: 400 });
+        }
+        variantSkuSet.add(rawSku);
+
+        const stock = parseInt(String(v.stockQuantity ?? 0), 10);
+        if (isNaN(stock) || stock < 0) {
+          return NextResponse.json({ error: `Variant '${rawSku}' stock must be a non-negative integer` }, { status: 400 });
+        }
+
+        const priceAdj = Number(v.priceAdjustmentPaise ?? 0);
+        if (!Number.isInteger(priceAdj)) {
+          return NextResponse.json({ error: `Variant '${rawSku}' price adjustment must be an integer paise amount` }, { status: 400 });
+        }
+      }
+
+      // Check for SKU collisions with OTHER products
+      const submittedSkus = Array.from(variantSkuSet);
+      if (submittedSkus.length > 0) {
+        const { data: collisions, error: colErr } = await supabase
+          .from('product_variants')
+          .select('sku, product_id')
+          .in('sku', submittedSkus)
+          .neq('product_id', id);
+
+        if (colErr) {
+          return NextResponse.json({ error: `Failed to check SKU uniqueness: ${colErr.message}` }, { status: 500 });
+        }
+        if (collisions && collisions.length > 0) {
+          return NextResponse.json(
+            { error: `Variant SKU '${collisions[0].sku}' is already in use by another product.` },
+            { status: 400 }
+          );
+        }
+      }
+
+      const { data: existingVars, error: fetchVarsErr } = await supabase
         .from('product_variants')
         .select('*')
         .eq('product_id', id);
 
+      if (fetchVarsErr) {
+        return NextResponse.json({ error: `Failed to load existing variants: ${fetchVarsErr.message}` }, { status: 500 });
+      }
+
       const existingMap = new Map((existingVars || []).map((v) => [v.id, v]));
-      const submittedVariantIds = new Set<string>();
 
       for (let idx = 0; idx < variants.length; idx++) {
         const v = variants[idx];
@@ -154,53 +226,66 @@ export async function PUT(request: NextRequest, context: RouteContext) {
           lead_time_days: Math.max(0, parseInt(String(v.leadTimeDays ?? 0), 10) || 0),
           dimensions: v.dimensions || { length_mm: 100, width_mm: 100, height_mm: 100 },
           weight_grams: Math.max(0, Number(v.weightGrams ?? 100)),
+          image: v.image ? String(v.image).trim() : null,
           is_active: v.isActive !== false,
-          updated_at: new Date().toISOString(),
         };
 
+        const incomingTempId = v.tempId || (v.id && !existingMap.has(v.id) ? v.id : null);
+
         if (v.id && existingMap.has(v.id)) {
-          submittedVariantIds.add(v.id);
-          await supabase
+          // UPDATE existing database record
+          const { error: updVarErr } = await supabase
             .from('product_variants')
             .update(vPayload)
             .eq('id', v.id);
+
+          if (updVarErr) {
+            return NextResponse.json({ error: `Failed to update variant '${vPayload.sku}': ${updVarErr.message}` }, { status: 400 });
+          }
         } else {
-          // Check if SKU already exists for this product
+          // Check if SKU already exists for this product (e.g. retried submission)
           const matchingBySku = (existingVars || []).find((ev) => ev.sku === vPayload.sku);
           if (matchingBySku) {
-            submittedVariantIds.add(matchingBySku.id);
-            await supabase
+            const { error: updSkuErr } = await supabase
               .from('product_variants')
               .update(vPayload)
               .eq('id', matchingBySku.id);
+
+            if (updSkuErr) {
+              return NextResponse.json({ error: `Failed to update variant '${vPayload.sku}': ${updSkuErr.message}` }, { status: 400 });
+            }
+            if (incomingTempId) {
+              tempIdMap[incomingTempId] = matchingBySku.id;
+            }
           } else {
-            const { data: insertedVar } = await supabase
+            // INSERT brand new variant record
+            const { data: insertedVar, error: insVarErr } = await supabase
               .from('product_variants')
               .insert(vPayload)
               .select('id')
               .single();
-            if (insertedVar) submittedVariantIds.add(insertedVar.id);
-          }
-        }
-      }
 
-      // Remove variants no longer present in the submitted payload
-      for (const existingVar of existingVars || []) {
-        if (!submittedVariantIds.has(existingVar.id)) {
-          await supabase
-            .from('product_variants')
-            .delete()
-            .eq('id', existingVar.id);
+            if (insVarErr || !insertedVar) {
+              return NextResponse.json({ error: `Failed to insert variant '${vPayload.sku}': ${insVarErr?.message || 'Database insert failed'}` }, { status: 400 });
+            }
+            if (incomingTempId) {
+              tempIdMap[incomingTempId] = insertedVar.id;
+            }
+          }
         }
       }
     }
 
-    // Fetch refreshed product with all reconciled variants
-    const { data: refreshedProduct } = await supabase
+    // Fetch refreshed product with all reconciled variants and joined category
+    const { data: refreshedProduct, error: refreshErr } = await supabase
       .from('products')
-      .select('*, product_variants(*)')
+      .select('*, product_variants(*), categories(id, name, slug)')
       .eq('id', id)
       .single();
+
+    if (refreshErr) {
+      console.warn('Refetch refreshed product notice:', refreshErr);
+    }
 
     const finalProduct = refreshedProduct || updatedProducts[0];
 
@@ -223,7 +308,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       ipAddress: request.headers.get('x-forwarded-for') || undefined,
     });
 
-    return NextResponse.json({ success: true, product: serializeProductFromDb(finalProduct) });
+    return NextResponse.json({ success: true, product: serializeProductFromDb(finalProduct), tempIdMap });
   } catch (err: unknown) {
     console.error('PUT /api/products/[id] error:', err);
     const message = err instanceof Error ? err.message : 'Failed to update product';
@@ -233,6 +318,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
+  const { verifyStaffSession, recordAuditLog } = await import('@/lib/supabase/server');
   const auth = await verifyStaffSession(['owner', 'catalog_editor']);
   if (!auth.authorized) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });

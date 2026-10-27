@@ -1,5 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import { NextResponse, type NextRequest } from 'next/server';
+import { AdminDataService } from '@/lib/adminDataStore';
 
 const STAFF_ROLES = ['owner', 'order_manager', 'production_operator', 'catalog_editor', 'support'];
 
@@ -96,14 +98,56 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // 2. Fetch user profile from database to verify staff role
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
+  // 2. Authoritatively fetch user profile from database to verify staff role
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  let profile: { role: string; is_suspended?: boolean } | null = null;
 
-  const isStaff = !profileError && profile && STAFF_ROLES.includes(profile.role);
+  if (serviceRoleKey) {
+    try {
+      const adminClient = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data } = await adminClient
+        .from('profiles')
+        .select('role, is_suspended')
+        .eq('id', user.id)
+        .single();
+      if (data) profile = data;
+    } catch (e) {
+      console.error('Middleware admin profile lookup error:', e);
+    }
+  }
+
+  if (!profile) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('role, is_suspended')
+      .eq('id', user.id)
+      .single();
+    if (data) profile = data;
+  }
+
+  if (!profile && user.user_metadata?.role) {
+    profile = { role: user.user_metadata.role };
+  }
+
+  const isSuspended =
+    Boolean(profile?.is_suspended) ||
+    AdminDataService.isUserSuspended(user.id);
+
+  if (isSuspended) {
+    if (isAdminApi) {
+      return NextResponse.json(
+        { error: 'Forbidden: Account has been suspended. Please contact the studio owner.' },
+        { status: 403 }
+      );
+    }
+    const accountUrl = new URL('/account', request.url);
+    accountUrl.searchParams.set('error', 'account_suspended');
+    return NextResponse.redirect(accountUrl);
+  }
+
+  const isStaff = Boolean(profile && STAFF_ROLES.includes(profile.role));
 
   // 3. Authenticated customer without staff role -> 403 on API, redirect on pages
   if (!isStaff) {

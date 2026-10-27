@@ -1,4 +1,4 @@
-import { Product, Order, CustomQuoteRequest, StaffUser } from './types';
+import { Product, Order, CustomQuoteRequest, StaffUser, ProductVideo } from './types';
 
 export const INITIAL_PRODUCTS: Product[] = [
   {
@@ -20,7 +20,21 @@ export const INITIAL_PRODUCTS: Product[] = [
       infillPercentage: 25,
       foodSafe: false,
       heatResistanceC: 55,
+      includedItems: [
+        '1 × Geometric Origami Planter Base',
+        '1 × Matching Low-Profile Drainage Saucer Tray',
+        'Note: Succulent plant, soil, and desk props shown in photos are for display only and are not included.'
+      ],
+      careInstructions: 'Wipe exterior with a dry or damp microfiber cloth. Hand-wash tray with cool water. Avoid direct open flames and heat exceeding 55°C. Not dishwasher safe or food safe.',
+      dispatchInfo: 'Ready stock dispatches within 24 hours from our Nashik studio. Made-to-order items require 2-4 business days for printing and QC before courier dispatch.',
     },
+    includedItems: [
+      '1 × Geometric Origami Planter Base',
+      '1 × Matching Low-Profile Drainage Saucer Tray',
+      'Note: Succulent plant, soil, and desk props shown in photos are for display only and are not included.'
+    ],
+    careInstructions: 'Wipe exterior with a dry or damp microfiber cloth. Hand-wash tray with cool water. Avoid direct open flames and heat exceeding 55°C. Not dishwasher safe or food safe.',
+    dispatchInfo: 'Ready stock dispatches within 24 hours from our Nashik studio. Made-to-order items require 2-4 business days for printing and QC before courier dispatch.',
     stockType: 'ready_stock',
     basePricePaise: 49900, // ₹499
     images: [
@@ -71,7 +85,6 @@ export const INITIAL_PRODUCTS: Product[] = [
         weightGrams: 230,
         stockQuantity: 0, // Made to order
         leadTimeDays: 3,
-        image: '/products/planter-obsidian-black.jpg',
       },
     ],
   },
@@ -531,4 +544,63 @@ export const STAFF_USERS: StaffUser[] = [
   { id: 'usr-owner', name: 'Falcon Administrator', email: 'admin@falcon3dprints.in', role: 'owner' },
   { id: 'usr-operator', name: 'Farm Operator (Nashik Hub)', email: 'operator@falcon3dprints.in', role: 'production_operator' },
   { id: 'usr-orders', name: 'Order & Shipping Dispatch', email: 'orders@falcon3dprints.in', role: 'order_manager' },
+];
+
+export const INITIAL_PRODUCT_VIDEOS: ProductVideo[] = [
+  {
+    id: 'vid-01',
+    title: 'Printing Cyber Gryphon on Bambu X1-Carbon',
+    caption: 'Watch the high-speed 0.08mm layer deposition in Titanium Gray PETG! Print-in-place ball sockets. #3dprinting #falcon3d #makersindia',
+    videoUrl: 'https://assets.falcon3dprints.com/videos/bambu-x1c-gryphon.mp4',
+    thumbnailUrl: '/products/figurine-mecha-gryphon.jpg',
+    durationSeconds: 28,
+    aspectRatio: '9:16',
+    linkedProductIds: ['a2222222-2222-2222-2222-222222222222'],
+    displayOrder: 1,
+    isActive: true,
+    viewsCount: 1420,
+    createdAt: '2026-10-16T10:00:00Z',
+  },
+  {
+    id: 'vid-02',
+    title: 'Parametric Hexagonal Planter Post-Processing',
+    caption: 'Seamless satin finish straight from the textured PEI bed. Zero post-processing needed. #homeoffice #planters',
+    videoUrl: 'https://assets.falcon3dprints.com/videos/planter-demo.mp4',
+    thumbnailUrl: '/products/planter-obsidian-black.jpg',
+    durationSeconds: 19,
+    aspectRatio: '9:16',
+    linkedProductIds: ['a1111111-1111-1111-1111-111111111111'],
+    displayOrder: 2,
+    isActive: true,
+    viewsCount: 980,
+    createdAt: '2026-10-16T12:00:00Z',
+  },
+  {
+    id: 'vid-03',
+    title: 'AeroStand Under-Desk Rest Strength Test',
+    caption: 'Testing 850g studio monitor headphone load with zero sag. Cable routing channel in action! #audiophile #desksetup',
+    videoUrl: 'https://assets.falcon3dprints.com/videos/aerostand-demo.mp4',
+    thumbnailUrl: '/products/stand-matte-white.jpg',
+    durationSeconds: 24,
+    aspectRatio: '9:16',
+    linkedProductIds: ['a3333333-3333-3333-3333-333333333333'],
+    displayOrder: 3,
+    isActive: true,
+    viewsCount: 1850,
+    createdAt: '2026-10-17T14:30:00Z',
+  },
+  {
+    id: 'vid-04',
+    title: 'HexaGrid Modular Desk Caddy Magnetic Snap',
+    caption: 'Neodymium magnets snap-aligning on the workbench. Six modular bays configured your way. #edc #workspace',
+    videoUrl: 'https://assets.falcon3dprints.com/videos/hexagrid-snap.mp4',
+    thumbnailUrl: '/products/hexagrid-desk-organizer.jpg',
+    durationSeconds: 16,
+    aspectRatio: '9:16',
+    linkedProductIds: ['982053be-ce2c-47f4-88d9-29de0a4ea8f4'],
+    displayOrder: 4,
+    isActive: true,
+    viewsCount: 2210,
+    createdAt: '2026-10-18T09:15:00Z',
+  },
 ];

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient, verifyStaffSession, recordAuditLog } from '@/lib/supabase/server';
 import { serializeOrderFromDb } from '@/lib/serializers';
+import { AdminDataService } from '@/lib/adminDataStore';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -17,7 +18,46 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const supabase = getSupabaseAdminClient();
   if (!supabase) {
-    return NextResponse.json({ error: 'Database service unavailable' }, { status: 500 });
+    try {
+      const body = await request.json();
+      const { reason, amountPaise, lastKnownUpdatedAt } = body;
+      if (!lastKnownUpdatedAt || typeof lastKnownUpdatedAt !== 'string') {
+        return NextResponse.json(
+          { error: 'Optimistic concurrency control: lastKnownUpdatedAt is mandatory for refund approvals.' },
+          { status: 400 }
+        );
+      }
+      const current = AdminDataService.getOrderById(id);
+      if (!current) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+
+      const refundAmount = amountPaise ? Math.min(amountPaise, current.totalPaise) : current.totalPaise;
+      const note = `Refund of ₹${(refundAmount / 100).toFixed(2)} approved by ${auth.profile.full_name} (${auth.profile.role}). Reason: ${reason || 'Customer request'}`;
+
+      const updated = AdminDataService.updateOrder(id, {
+        refundStatus: 'approved',
+        statusHistory: [
+          ...(current.statusHistory || []),
+          { status: current.status, timestamp: new Date().toISOString(), note },
+        ],
+      });
+
+      AdminDataService.recordAudit({
+        staffUserId: auth.user.id,
+        staffName: auth.profile.full_name,
+        staffRole: auth.profile.role,
+        action: 'ORDER_REFUND_APPROVED',
+        entityType: 'order',
+        entityId: current.orderNumber,
+        oldState: { refundStatus: current.refundStatus },
+        newState: { refundStatus: 'approved', refundAmountPaise: refundAmount },
+        notes: note,
+      });
+
+      return NextResponse.json({ success: true, order: updated });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error approving refund';
+      return NextResponse.json({ error: msg }, { status: 500 });
+    }
   }
 
   try {

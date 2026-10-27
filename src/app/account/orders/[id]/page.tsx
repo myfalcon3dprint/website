@@ -117,7 +117,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.35rem' }}>
-            <h1 style={{ fontSize: '1.75rem', margin: 0, color: 'var(--text-primary)' }}>Order {order.orderNumber}</h1>
+            <h1 className="font-editorial" style={{ fontSize: '1.85rem', margin: 0, color: 'var(--text-primary)' }}>Order {order.orderNumber}</h1>
             <span
               className={`badge ${
                 order.status === 'delivered'
@@ -255,8 +255,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                     {/* Circle icon */}
                     <div
                       style={{
-                        width: '32px',
-                        height: '32px',
+                        width: '34px',
+                        height: '34px',
                         borderRadius: 'var(--radius-full)',
                         display: 'flex',
                         alignItems: 'center',
@@ -266,7 +266,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                         background: isPassed
                           ? 'var(--status-ready-bg)'
                           : isCurrent
-                          ? 'var(--action-primary)'
+                          ? 'var(--brand-accent)'
                           : 'var(--surface-alt)',
                         color: isPassed
                           ? 'var(--status-ready)'
@@ -276,20 +276,21 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                         border: isPassed
                           ? '1px solid var(--status-ready-border)'
                           : isCurrent
-                          ? '1px solid var(--action-primary)'
+                          ? '2px solid var(--brand-accent)'
                           : '1px solid var(--border-subtle)',
+                        boxShadow: isCurrent ? '0 0 12px rgba(232, 89, 12, 0.35)' : 'none',
                       }}
                     >
                       {isPassed ? (
                         <CheckCircle2 size={16} strokeWidth={2.5} />
                       ) : isCurrent ? (
-                        <Clock size={15} strokeWidth={2.5} />
+                        <Clock size={15} strokeWidth={2.5} style={{ animation: 'spin 4s linear infinite' }} />
                       ) : (
-                        <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>{idx + 1}</span>
+                        <span className="tabular-num" style={{ fontSize: '0.75rem', fontWeight: 600 }}>{idx + 1}</span>
                       )}
                     </div>
 
-                    <div style={{ fontWeight: isCurrent ? 700 : 500, fontSize: '0.78rem', color: isCurrent ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                    <div style={{ fontWeight: isCurrent ? 700 : 600, fontSize: '0.78rem', color: isCurrent ? 'var(--brand-accent)' : 'var(--text-primary)' }}>
                       {step.label}
                     </div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.15rem', lineHeight: 1.25 }}>
@@ -386,7 +387,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           </div>
 
           {/* Pricing summary */}
-          <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: '0.85rem' }}>
+          <div className="tabular-num" style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: '0.85rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
               <span>Subtotal</span>
               <span>{formatINR(order.subtotalPaise)}</span>

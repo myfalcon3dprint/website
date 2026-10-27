@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from('products')
-      .select('*, product_variants(*)', { count: 'exact' });
+      .select('*, product_variants(*), categories(id, name, slug)', { count: 'exact' });
 
     if (category && category !== 'all') {
       query = query.eq('category_id', category);
@@ -99,7 +99,66 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'basePricePaise must be a non-negative integer' }, { status: 400 });
     }
 
-    // 1. Insert product record
+    // 1. Validate variants if provided
+    const variantSkuSet = new Set<string>();
+    const preparedVariants: Array<Record<string, unknown>> = [];
+
+    if (Array.isArray(variants)) {
+      for (let idx = 0; idx < variants.length; idx++) {
+        const v = variants[idx];
+        const rawSku = String(v.sku || `${cleanSlug.toUpperCase().slice(0, 8)}-${idx + 1}`).trim();
+        if (!rawSku) {
+          return NextResponse.json({ error: `Variant #${idx + 1} SKU cannot be empty` }, { status: 400 });
+        }
+        if (variantSkuSet.has(rawSku)) {
+          return NextResponse.json({ error: `Duplicate variant SKU '${rawSku}' in submission` }, { status: 400 });
+        }
+        variantSkuSet.add(rawSku);
+
+        const stock = parseInt(String(v.stockQuantity ?? 0), 10);
+        if (isNaN(stock) || stock < 0) {
+          return NextResponse.json({ error: `Variant '${rawSku}' stock must be a non-negative integer` }, { status: 400 });
+        }
+
+        const priceAdj = Number(v.priceAdjustmentPaise ?? 0);
+        if (!Number.isInteger(priceAdj)) {
+          return NextResponse.json({ error: `Variant '${rawSku}' price adjustment must be an integer paise amount` }, { status: 400 });
+        }
+
+        preparedVariants.push({
+          sku: rawSku,
+          title: String(v.title || `${v.material || 'PLA'} / ${v.color || 'Standard'}`).trim(),
+          material: String(v.material || 'PLA').trim(),
+          color: String(v.color || 'Standard').trim(),
+          finish: String(v.finish || 'Raw (Layered)').trim(),
+          price_adjustment_paise: priceAdj,
+          stock_quantity: stock,
+          lead_time_days: Math.max(0, parseInt(String(v.leadTimeDays ?? 0), 10) || 0),
+          dimensions: v.dimensions || { length_mm: 100, width_mm: 100, height_mm: 100 },
+          weight_grams: Math.max(0, Number(v.weightGrams ?? 100)),
+          image: v.image ? String(v.image).trim() : null,
+          is_active: v.isActive !== false,
+        });
+      }
+
+      // Check if any SKU already exists in product_variants across the database
+      if (preparedVariants.length > 0) {
+        const skusToCheck = preparedVariants.map((pv) => pv.sku as string);
+        const { data: existingCollisions } = await supabase
+          .from('product_variants')
+          .select('sku')
+          .in('sku', skusToCheck);
+
+        if (existingCollisions && existingCollisions.length > 0) {
+          return NextResponse.json(
+            { error: `Variant SKU '${existingCollisions[0].sku}' is already in use by another product.` },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    // 2. Insert product record
     const { data: newProduct, error: prodErr } = await supabase
       .from('products')
       .insert({
@@ -115,29 +174,19 @@ export async function POST(request: NextRequest) {
         specs: typeof specs === 'object' ? specs : {},
         is_published: Boolean(isPublished),
       })
-      .select()
+      .select('*, categories(id, name, slug)')
       .single();
 
     if (prodErr || !newProduct) {
       return NextResponse.json({ error: prodErr?.message || 'Failed to insert product' }, { status: 400 });
     }
 
-    // 2. Insert variants if provided
+    // 3. Insert variants if provided
     const insertedVariants: unknown[] = [];
-    if (Array.isArray(variants) && variants.length > 0) {
-      const variantPayloads = variants.map((v, idx) => ({
+    if (preparedVariants.length > 0) {
+      const variantPayloads = preparedVariants.map((v) => ({
+        ...v,
         product_id: newProduct.id,
-        sku: v.sku?.trim() || `${cleanSlug.toUpperCase().slice(0, 8)}-${idx + 1}`,
-        title: v.title?.trim() || `${v.material || 'PLA'} / ${v.color || 'Standard'}`,
-        material: v.material || 'PLA',
-        color: v.color || 'Standard',
-        finish: v.finish || 'Raw (Layered)',
-        price_adjustment_paise: Number.isInteger(Number(v.priceAdjustmentPaise)) ? Number(v.priceAdjustmentPaise) : 0,
-        stock_quantity: Math.max(0, parseInt(String(v.stockQuantity ?? 0), 10) || 0),
-        lead_time_days: Math.max(0, parseInt(String(v.leadTimeDays ?? 0), 10) || 0),
-        dimensions: v.dimensions || { length_mm: 100, width_mm: 100, height_mm: 100 },
-        weight_grams: Math.max(0, Number(v.weightGrams ?? 100)),
-        is_active: true,
       }));
 
       const { data: vars, error: varErr } = await supabase
@@ -155,7 +204,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 3. Record Audit Log
+    // 4. Record Audit Log
     await recordAuditLog({
       staffUserId: auth.user.id,
       staffName: auth.profile.full_name,

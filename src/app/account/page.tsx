@@ -138,7 +138,7 @@ export default function AccountOrdersPage() {
           <span style={{ fontSize: '0.75rem', color: 'var(--brand-accent)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
             CUSTOMER PORTAL
           </span>
-          <h1 style={{ fontSize: '2.1rem', color: 'var(--text-primary)', marginTop: '0.25rem', letterSpacing: '-0.025em' }}>
+          <h1 className="font-editorial" style={{ fontSize: '2.25rem', color: 'var(--text-primary)', marginTop: '0.25rem', letterSpacing: '-0.025em' }}>
             Your Orders &amp; Print Status
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem' }}>
@@ -163,9 +163,9 @@ export default function AccountOrdersPage() {
       {displayedOrders.length === 0 ? (
         <div className="card" style={{ padding: '3.5rem 1.5rem', textAlign: 'center' }}>
           <Package size={36} style={{ color: 'var(--text-muted)', margin: '0 auto 1rem' }} />
-          <h2 style={{ fontSize: '1.2rem', color: 'var(--text-primary)', marginBottom: '0.4rem' }}>No orders found</h2>
+          <h2 className="font-editorial" style={{ fontSize: '1.4rem', color: 'var(--text-primary)', marginBottom: '0.4rem' }}>No orders found</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginBottom: '1.25rem' }}>
-            You haven't placed any orders yet or no match found for &ldquo;{searchOrderNum}&rdquo;.
+            You have not placed any orders yet or no match was found for &ldquo;{searchOrderNum}&rdquo;.
           </p>
           <Link href="/catalog" className="btn-primary" style={{ fontSize: '0.88rem' }}>
             Explore 3D Catalog
@@ -209,7 +209,7 @@ export default function AccountOrdersPage() {
                       {order.status.replace('_', ' ')}
                     </span>
 
-                    <span style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    <span className="tabular-num" style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)' }}>
                       {formatINR(order.totalPaise)}
                     </span>
                   </div>
@@ -222,7 +222,7 @@ export default function AccountOrdersPage() {
                       <span style={{ color: 'var(--text-secondary)' }}>
                         {item.quantity}× <strong style={{ color: 'var(--text-primary)' }}>{item.productTitle}</strong> ({item.variantDetails})
                       </span>
-                      <span style={{ color: 'var(--text-secondary)' }}>
+                      <span className="tabular-num" style={{ color: 'var(--text-secondary)' }}>
                         {formatINR(item.totalPricePaise)}
                       </span>
                     </div>

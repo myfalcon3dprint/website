@@ -142,8 +142,8 @@ export function serializeProductFromDb(p: Record<string, unknown>): Product {
     slug: String(p.slug || ''),
     title: String(p.name || p.title || 'Studio Product'),
     subtitle: String(p.short_description || p.subtitle || ''),
-    category: (p.category_name as Product['category']) || (p.category as Product['category']) || 'Planters & Decor',
-    categoryId: p.category_id ? String(p.category_id) : p.categoryId ? String(p.categoryId) : undefined,
+    category: ((p.categories as Record<string, unknown>)?.name as string) || (p.category_name as string) || (p.category as string) || 'Planters & Decor',
+    categoryId: p.category_id ? String(p.category_id) : p.categoryId ? String(p.categoryId) : ((p.categories as Record<string, unknown>)?.id ? String((p.categories as Record<string, unknown>).id) : undefined),
     isPublished: p.is_published !== undefined ? Boolean(p.is_published) : p.isPublished !== undefined ? Boolean(p.isPublished) : true,
     archivedAt: p.deleted_at ? String(p.deleted_at) : p.archivedAt ? String(p.archivedAt) : null,
     description: String(p.description || ''),
@@ -154,7 +154,17 @@ export function serializeProductFromDb(p: Record<string, unknown>): Product {
       infillPercentage: Number(rawSpecs.infillPercentage ?? 20),
       foodSafe: Boolean(rawSpecs.foodSafe),
       heatResistanceC: Number(rawSpecs.heatResistanceC ?? 60),
+      includedItems: Array.isArray(rawSpecs.includedItems) ? rawSpecs.includedItems.map(String) : undefined,
+      careInstructions: rawSpecs.careInstructions ? String(rawSpecs.careInstructions) : (p.care_info ? String(p.care_info) : undefined),
+      dispatchInfo: rawSpecs.dispatchInfo ? String(rawSpecs.dispatchInfo) : undefined,
     },
+    includedItems: Array.isArray(rawSpecs.includedItems)
+      ? rawSpecs.includedItems.map(String)
+      : Array.isArray(p.included_items)
+      ? (p.included_items as unknown[]).map(String)
+      : undefined,
+    careInstructions: p.care_info ? String(p.care_info) : (rawSpecs.careInstructions ? String(rawSpecs.careInstructions) : undefined),
+    dispatchInfo: rawSpecs.dispatchInfo ? String(rawSpecs.dispatchInfo) : (p.dispatch_info ? String(p.dispatch_info) : undefined),
     stockType: (p.availability === 'in_stock' || p.stockType === 'ready_stock') ? 'ready_stock' : 'made_to_order',
     basePricePaise,
     images: Array.isArray(p.images) ? p.images.map(String) : [],

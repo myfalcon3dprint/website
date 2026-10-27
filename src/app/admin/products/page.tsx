@@ -5,11 +5,12 @@ import Link from 'next/link';
 import { useAuthUser } from '@/lib/supabase/auth';
 import { formatINR } from '@/lib/money';
 import { Product } from '@/lib/types';
+import { getStoredProducts, saveStoredProducts } from '@/lib/store';
 import { 
   Layers, Search, CheckCircle2, AlertCircle, Plus, 
   Minus, ShieldAlert, Sparkles, Tag, Package, RefreshCw,
   ChevronLeft, ChevronRight, Edit3, Trash2, Upload, X, Image as ImageIcon,
-  Eye, EyeOff
+  Eye, EyeOff, Copy
 } from 'lucide-react';
 
 interface CategoryItem {
@@ -28,6 +29,7 @@ interface NewVariantInput {
   priceAdjustmentPaise: number;
   stockQuantity: number;
   leadTimeDays: number;
+  image?: string;
 }
 
 export default function AdminProductsPage() {
@@ -68,15 +70,28 @@ export default function AdminProductsPage() {
   const [formCategoryId, setFormCategoryId] = useState('');
   const [formShortDesc, setFormShortDesc] = useState('');
   const [formDesc, setFormDesc] = useState('');
+  const [formFeatures, setFormFeatures] = useState('');
+  const [formIncludedItems, setFormIncludedItems] = useState('');
+  const [formCareInstructions, setFormCareInstructions] = useState('');
+  const [formDispatchInfo, setFormDispatchInfo] = useState('');
   const [formBasePriceINR, setFormBasePriceINR] = useState('499');
   const [formAvailability, setFormAvailability] = useState<'in_stock' | 'made_to_order'>('in_stock');
   const [formImages, setFormImages] = useState<string[]>([]);
   const [formVariants, setFormVariants] = useState<NewVariantInput[]>([
-    { sku: '', title: 'Matte Black', material: 'PLA', color: 'Black', finish: 'Matte (Layered)', priceAdjustmentPaise: 0, stockQuantity: 10, leadTimeDays: 0 },
+    { sku: '', title: 'Matte Black', material: 'PLA', color: 'Black', finish: 'Matte (Layered)', priceAdjustmentPaise: 0, stockQuantity: 10, leadTimeDays: 0, image: '' },
   ]);
   const [formIsPublished, setFormIsPublished] = useState(true);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [replacingImageIndex, setReplacingImageIndex] = useState<number | null>(null);
+
+  // Inline category creation states
+  const [isCreatingInlineCat, setIsCreatingInlineCat] = useState(false);
+  const [inlineCatName, setInlineCatName] = useState('');
+  const [inlineCatSlug, setInlineCatSlug] = useState('');
+  const [inlineCatDesc, setInlineCatDesc] = useState('');
+  const [isSubmittingInlineCat, setIsSubmittingInlineCat] = useState(false);
+  const [inlineCatError, setInlineCatError] = useState<string | null>(null);
+  const [categoryJustCreatedNote, setCategoryJustCreatedNote] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceFileInputRef = useRef<HTMLInputElement>(null);
@@ -312,18 +327,25 @@ export default function AdminProductsPage() {
     setFormCategoryId(categories[0]?.id || '');
     setFormShortDesc('');
     setFormDesc('');
+    setFormFeatures('');
+    setFormIncludedItems('');
+    setFormCareInstructions('');
+    setFormDispatchInfo('');
     setFormBasePriceINR('499');
     setFormAvailability('in_stock');
     setFormIsPublished(true);
     setFormImages([]);
     setFormVariants([
-      { sku: '', title: 'Matte Black', material: 'PLA', color: 'Black', finish: 'Matte (Layered)', priceAdjustmentPaise: 0, stockQuantity: 10, leadTimeDays: 0 },
+      { id: `temp-${Date.now()}-1`, sku: '', title: 'Matte Black', material: 'PLA', color: 'Black', finish: 'Matte (Layered)', priceAdjustmentPaise: 0, stockQuantity: 10, leadTimeDays: 0, image: '' },
     ]);
     setConflictProduct(null);
     setConflictMessage(null);
     setSaveSuccessNote(null);
     setUploadError(null);
     setEditError(null);
+    setIsCreatingInlineCat(false);
+    setCategoryJustCreatedNote(null);
+    setInlineCatError(null);
     setIsAddModalOpen(true);
   };
 
@@ -335,6 +357,10 @@ export default function AdminProductsPage() {
     setFormCategoryId(p.categoryId || '');
     setFormShortDesc(p.subtitle);
     setFormDesc(p.description);
+    setFormFeatures((p.features || []).join('\n'));
+    setFormIncludedItems((p.includedItems || p.specs?.includedItems || []).join('\n'));
+    setFormCareInstructions(p.careInstructions || p.specs?.careInstructions || '');
+    setFormDispatchInfo(p.dispatchInfo || p.specs?.dispatchInfo || '');
     setFormBasePriceINR((p.basePricePaise / 100).toString());
     setFormAvailability(p.stockType === 'ready_stock' ? 'in_stock' : 'made_to_order');
     setFormIsPublished(p.isPublished ?? true);
@@ -351,9 +377,10 @@ export default function AdminProductsPage() {
             priceAdjustmentPaise: v.priceAdjustmentPaise || 0,
             stockQuantity: v.stockQuantity ?? 10,
             leadTimeDays: v.leadTimeDays ?? 0,
+            image: v.image || '',
           }))
         : [
-            { sku: `${p.slug.toUpperCase().slice(0, 8)}-1`, title: 'Standard', material: 'PLA', color: 'Black', finish: 'Matte (Layered)', priceAdjustmentPaise: 0, stockQuantity: 10, leadTimeDays: 0 },
+            { id: `temp-${Date.now()}-1`, sku: `${p.slug.toUpperCase().slice(0, 8)}-1`, title: 'Standard', material: 'PLA', color: 'Black', finish: 'Matte (Layered)', priceAdjustmentPaise: 0, stockQuantity: 10, leadTimeDays: 0, image: '' },
           ]
     );
     setConflictProduct(null);
@@ -361,6 +388,9 @@ export default function AdminProductsPage() {
     setSaveSuccessNote(null);
     setUploadError(null);
     setEditError(null);
+    setIsCreatingInlineCat(false);
+    setCategoryJustCreatedNote(null);
+    setInlineCatError(null);
   };
 
   // Conflict Resolution: Review server changes and explicitly bind reviewed version token for conditional retry
@@ -393,6 +423,43 @@ export default function AdminProductsPage() {
     setConflictMessage(null);
   };
 
+  // Handle Inline Category Creation
+  const handleCreateInlineCategory = async () => {
+    if (!inlineCatName.trim()) {
+      setInlineCatError('Category name is required');
+      return;
+    }
+    setIsSubmittingInlineCat(true);
+    setInlineCatError(null);
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: inlineCatName.trim(),
+          slug: inlineCatSlug.trim() || undefined,
+          description: inlineCatDesc.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create category');
+      }
+      const newCat = data.category as CategoryItem;
+      await fetchCategories();
+      setFormCategoryId(newCat.id);
+      setIsCreatingInlineCat(false);
+      setInlineCatName('');
+      setInlineCatSlug('');
+      setInlineCatDesc('');
+      setCategoryJustCreatedNote(`Category "${newCat.name}" selected! Remember to save this product to persist assignment.`);
+    } catch (err: unknown) {
+      setInlineCatError(err instanceof Error ? err.message : 'Failed to create category');
+    } finally {
+      setIsSubmittingInlineCat(false);
+    }
+  };
+
   // Save New Product
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -405,26 +472,41 @@ export default function AdminProductsPage() {
     setEditError(null);
     try {
       const basePricePaise = Math.round(parseFloat(formBasePriceINR) * 100);
+      const parsedFeatures = formFeatures.split('\n').map((s) => s.trim()).filter(Boolean);
+      const parsedIncluded = formIncludedItems.split('\n').map((s) => s.trim()).filter(Boolean);
+
+      const payload = {
+        name: formName,
+        slug: formSlug || formName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        categoryId: formCategoryId || undefined,
+        shortDescription: formShortDesc,
+        description: formDesc,
+        features: parsedFeatures,
+        includedItems: parsedIncluded,
+        careInstructions: formCareInstructions.trim(),
+        dispatchInfo: formDispatchInfo.trim(),
+        basePricePaise,
+        availability: formAvailability,
+        isPublished: formIsPublished,
+        images: formImages,
+        variants: formVariants.map((v) => ({ ...v, image: v.image || undefined })),
+      };
+
       const res = await fetch('/api/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formName,
-          slug: formSlug || formName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-          categoryId: formCategoryId || undefined,
-          shortDescription: formShortDesc,
-          description: formDesc,
-          basePricePaise,
-          availability: formAvailability,
-          isPublished: formIsPublished,
-          images: formImages,
-          variants: formVariants,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to create product');
+      }
+
+      const createData = await res.json();
+      if (createData?.product) {
+        const localCatalog = getStoredProducts();
+        saveStoredProducts([createData.product, ...localCatalog]);
       }
 
       setIsAddModalOpen(false);
@@ -452,46 +534,56 @@ export default function AdminProductsPage() {
       const basePricePaise = Math.round(parseFloat(formBasePriceINR) * 100);
       const versionToUse = overrideUpdatedAt || editingProduct.updatedAt || '';
       const expectedVersion = overrideVersion !== undefined ? overrideVersion : editingProduct.version;
+      const parsedFeatures = formFeatures.split('\n').map((s) => s.trim()).filter(Boolean);
+      const parsedIncluded = formIncludedItems.split('\n').map((s) => s.trim()).filter(Boolean);
+
+      const payload = {
+        name: formName,
+        slug: formSlug,
+        categoryId: formCategoryId || null,
+        shortDescription: formShortDesc,
+        description: formDesc,
+        features: parsedFeatures,
+        includedItems: parsedIncluded,
+        careInstructions: formCareInstructions.trim(),
+        dispatchInfo: formDispatchInfo.trim(),
+        basePricePaise,
+        availability: formAvailability,
+        isPublished: formIsPublished,
+        images: formImages,
+        variants: formVariants.map((v) => ({ ...v, image: v.image || undefined })),
+        expectedVersion,
+        lastKnownUpdatedAt: versionToUse,
+      };
+
       const res = await fetch(`/api/products/${editingProduct.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formName,
-          slug: formSlug,
-          categoryId: formCategoryId || undefined,
-          shortDescription: formShortDesc,
-          description: formDesc,
-          basePricePaise,
-          availability: formAvailability,
-          isPublished: formIsPublished,
-          images: formImages,
-          variants: formVariants,
-          expectedVersion,
-          lastKnownUpdatedAt: versionToUse,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (res.status === 409) {
         const conflictData = await res.json().catch(() => ({}));
         setConflictProduct(conflictData.currentProduct || null);
         setConflictMessage(conflictData.error || 'Concurrency conflict: Product was updated by another operator.');
-        // Unsaved inputs are preserved in form fields!
         return;
       }
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `Update failed with status ${res.status}`);
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to update product (HTTP ${res.status})`);
       }
 
       const data = await res.json();
       const updated = data.product as Product;
-
       if (updated) {
-        // Refresh editingProduct version in memory so sequential saves succeed without reload
         setEditingProduct(updated);
         setFormIsPublished(updated.isPublished ?? true);
+        if (updated.categoryId) {
+          setFormCategoryId(updated.categoryId);
+        }
         if (updated.variants && updated.variants.length > 0) {
+          // Replace temporary client IDs with confirmed database IDs
           setFormVariants(
             updated.variants.map((v) => ({
               id: v.id,
@@ -501,13 +593,20 @@ export default function AdminProductsPage() {
               color: v.color || 'Standard',
               finish: v.finish || 'Matte (Layered)',
               priceAdjustmentPaise: v.priceAdjustmentPaise || 0,
-              stockQuantity: v.stockQuantity ?? 10,
-              leadTimeDays: v.leadTimeDays ?? 0,
+              stockQuantity: v.stockQuantity,
+              leadTimeDays: v.leadTimeDays,
+              image: v.image || '',
             }))
           );
         }
-        // Refresh catalog list in memory
-        setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+
+        // Sync local storage catalog with confirmed database records
+        const localCatalog = getStoredProducts();
+        const existsInLocal = localCatalog.some((p) => p.id === updated.id);
+        const updatedCatalog = existsInLocal
+          ? localCatalog.map((p) => (p.id === updated.id ? updated : p))
+          : [updated, ...localCatalog];
+        saveStoredProducts(updatedCatalog);
       }
 
       setSaveSuccessNote(`Saved at ${new Date().toLocaleTimeString()}`);
@@ -539,7 +638,12 @@ export default function AdminProductsPage() {
         throw new Error(err.error || 'Failed to toggle publishing status');
       }
       const data = await res.json();
-      setProducts((prev) => prev.map((item) => (item.id === p.id ? data.product : item)));
+      const updatedProduct = data.product || { ...p, isPublished: targetStatus };
+      setProducts((prev) => prev.map((item) => (item.id === p.id ? updatedProduct : item)));
+      
+      const localCatalog = getStoredProducts();
+      saveStoredProducts(localCatalog.map((item) => (item.id === p.id ? updatedProduct : item)));
+
       setStockUpdatedNote(`Product '${p.title}' is now ${targetStatus ? 'Published' : 'Archived'}.`);
     } catch (err: unknown) {
       alert(`Publishing toggle error: ${err instanceof Error ? err.message : 'Failed'}`);
@@ -558,11 +662,51 @@ export default function AdminProductsPage() {
         const err = await res.json();
         throw new Error(err.error || 'Failed to archive');
       }
+
+      const localCatalog = getStoredProducts();
+      saveStoredProducts(localCatalog.map((item) => (item.id === p.id ? { ...item, isPublished: false, archivedAt: new Date().toISOString() } : item)));
+
       setStockUpdatedNote(`Product '${p.title}' unpublished.`);
       fetchProducts();
     } catch (err: unknown) {
       alert(`Archive error: ${err instanceof Error ? err.message : 'Unknown'}`);
     }
+  };
+
+  // Duplicate Product as Draft
+  const handleDuplicateProduct = (p: Product) => {
+    setEditingProduct(null);
+    setFormName(`${p.title} (Draft Copy)`);
+    setFormSlug(`${p.slug}-copy-${Date.now().toString().slice(-4)}`);
+    setFormCategoryId(p.categoryId || categories[0]?.id || '');
+    setFormShortDesc(p.subtitle);
+    setFormDesc(p.description);
+    setFormBasePriceINR((p.basePricePaise / 100).toString());
+    setFormAvailability(p.stockType === 'ready_stock' ? 'in_stock' : 'made_to_order');
+    setFormIsPublished(false); // Created as Draft
+    setFormImages(p.images || []);
+    setFormVariants(
+      p.variants && p.variants.length > 0
+        ? p.variants.map((v) => ({
+            sku: `${v.sku}-COPY`,
+            title: v.title,
+            material: v.material || 'PLA',
+            color: v.color || 'Standard',
+            finish: v.finish || 'Matte (Layered)',
+            priceAdjustmentPaise: v.priceAdjustmentPaise || 0,
+            stockQuantity: v.stockQuantity ?? 10,
+            leadTimeDays: v.leadTimeDays ?? 0,
+          }))
+        : [
+            { sku: `${p.slug.toUpperCase().slice(0, 8)}-COPY`, title: 'Standard', material: 'PLA', color: 'Black', finish: 'Matte (Layered)', priceAdjustmentPaise: 0, stockQuantity: 10, leadTimeDays: 0 },
+          ]
+    );
+    setConflictProduct(null);
+    setConflictMessage(null);
+    setSaveSuccessNote(null);
+    setUploadError(null);
+    setEditError(null);
+    setIsAddModalOpen(true);
   };
 
   return (
@@ -706,9 +850,18 @@ export default function AdminProductsPage() {
         <div style={{ textAlign: 'center', padding: '64px 20px', background: 'var(--surface-card)', borderRadius: 'var(--radius-sm)', border: '1px dashed var(--border-decor)' }}>
           <Package size={36} style={{ color: 'var(--text-secondary)', margin: '0 auto 12px' }} />
           <h3 style={{ fontSize: '1.125rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}>No products found</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', maxWidth: '400px', margin: '0 auto' }}>
-            No catalog products matched your filters. Create a new product or check active categories.
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', maxWidth: '400px', margin: '0 auto 16px' }}>
+            No catalog products matched your filters. Create your first product or adjust category filters.
           </p>
+          {canEditCatalog && (
+            <button
+              onClick={openCreateModal}
+              className="btn btn-primary"
+              style={{ padding: '8px 18px', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Plus size={16} /> Create Product
+            </button>
+          )}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '24px' }}>
@@ -795,6 +948,14 @@ export default function AdminProductsPage() {
                         title="Edit product"
                       >
                         <Edit3 size={13} />
+                      </button>
+                      <button
+                        onClick={() => handleDuplicateProduct(p)}
+                        className="btn btn-outline"
+                        style={{ padding: '6px 8px', fontSize: '0.75rem', color: '#60A5FA' }}
+                        title="Duplicate as draft copy"
+                      >
+                        <Copy size={13} />
                       </button>
                       <button
                         onClick={() => handleArchiveProduct(p)}
@@ -1105,12 +1266,103 @@ export default function AdminProductsPage() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' }}>
-                      Category
-                    </label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)', margin: 0 }}>
+                        Category
+                      </label>
+                      {canEditCatalog && !isCreatingInlineCat && (
+                        <button
+                          type="button"
+                          onClick={() => setIsCreatingInlineCat(true)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--accent-primary)',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            padding: '0 2px',
+                          }}
+                        >
+                          + New Category
+                        </button>
+                      )}
+                    </div>
+
+                    {categoryJustCreatedNote && (
+                      <div style={{ padding: '6px 10px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10B981', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: '#10B981', marginBottom: '8px' }}>
+                        {categoryJustCreatedNote}
+                      </div>
+                    )}
+
+                    {isCreatingInlineCat && (
+                      <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-decor)', borderRadius: 'var(--radius-sm)', padding: '12px', marginBottom: '10px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>New Category</span>
+                          <button
+                            type="button"
+                            onClick={() => { setIsCreatingInlineCat(false); setInlineCatError(null); }}
+                            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1rem', lineHeight: 1 }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Category Name (e.g. Desk Accessories)"
+                          value={inlineCatName}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setInlineCatName(val);
+                            setInlineCatSlug(val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''));
+                          }}
+                          style={{ width: '100%', padding: '6px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border-decor)', background: 'var(--surface-raised)', color: 'var(--text-primary)', marginBottom: '6px' }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Category Slug"
+                          value={inlineCatSlug}
+                          onChange={(e) => setInlineCatSlug(e.target.value)}
+                          style={{ width: '100%', padding: '6px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border-decor)', background: 'var(--surface-raised)', color: 'var(--text-primary)', marginBottom: '6px' }}
+                        />
+                        <textarea
+                          placeholder="Description (optional)"
+                          rows={2}
+                          value={inlineCatDesc}
+                          onChange={(e) => setInlineCatDesc(e.target.value)}
+                          style={{ width: '100%', padding: '6px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border-decor)', background: 'var(--surface-raised)', color: 'var(--text-primary)', marginBottom: '8px', resize: 'vertical' }}
+                        />
+                        {inlineCatError && (
+                          <div style={{ color: 'var(--danger)', fontSize: '0.75rem', marginBottom: '8px' }}>{inlineCatError}</div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => { setIsCreatingInlineCat(false); setInlineCatError(null); }}
+                            className="btn btn-outline"
+                            style={{ padding: '3px 8px', fontSize: '0.75rem' }}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isSubmittingInlineCat || !inlineCatName.trim()}
+                            onClick={handleCreateInlineCategory}
+                            className="btn btn-primary"
+                            style={{ padding: '3px 12px', fontSize: '0.75rem' }}
+                          >
+                            {isSubmittingInlineCat ? 'Saving...' : 'Create & Select'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <select
                       value={formCategoryId}
-                      onChange={(e) => setFormCategoryId(e.target.value)}
+                      onChange={(e) => {
+                        setFormCategoryId(e.target.value);
+                        setCategoryJustCreatedNote(null);
+                      }}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-decor)', background: 'var(--surface-raised)', color: 'var(--text-primary)' }}
                     >
                       <option value="">No Category</option>
@@ -1137,7 +1389,7 @@ export default function AdminProductsPage() {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' }}>
-                    Short Subtitle
+                    Short Subtitle (Storefront summary near title)
                   </label>
                   <input
                     type="text"
@@ -1149,7 +1401,7 @@ export default function AdminProductsPage() {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' }}>
-                    Description
+                    Full Product Description & Overview
                   </label>
                   <textarea
                     rows={3}
@@ -1157,6 +1409,62 @@ export default function AdminProductsPage() {
                     onChange={(e) => setFormDesc(e.target.value)}
                     style={{ width: '100%', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-decor)', background: 'var(--surface-raised)', color: 'var(--text-primary)', resize: 'vertical' }}
                   />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                      Key Features & Highlights (One per line)
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={formFeatures}
+                      placeholder="Micro-drainage channels to prevent root rot&#10;High-infill honeycomb base for stability&#10;Matte faceted exterior"
+                      onChange={(e) => setFormFeatures(e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-decor)', background: 'var(--surface-raised)', color: 'var(--text-primary)', resize: 'vertical' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                      What’s Included (One per line — clarify accessory inclusions)
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={formIncludedItems}
+                      placeholder="1 × Geometric Origami Planter Base&#10;1 × Matching Drainage Saucer Tray&#10;Note: Succulent plant and potting soil not included."
+                      onChange={(e) => setFormIncludedItems(e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-decor)', background: 'var(--surface-raised)', color: 'var(--text-primary)', resize: 'vertical' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                      Care & Handling Instructions
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={formCareInstructions}
+                      placeholder="Wipe with a clean damp cloth. Hand-wash saucer tray with cool water. Keep away from heat >55°C."
+                      onChange={(e) => setFormCareInstructions(e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-decor)', background: 'var(--surface-raised)', color: 'var(--text-primary)', resize: 'vertical' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                      Production & Dispatch Details
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={formDispatchInfo}
+                      placeholder="Ready stock dispatches in 24 hours from Nashik studio. Made to order printed in 2-4 days."
+                      onChange={(e) => setFormDispatchInfo(e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-decor)', background: 'var(--surface-raised)', color: 'var(--text-primary)', resize: 'vertical' }}
+                    />
+                  </div>
                 </div>
 
                 {/* Media Management: Upload, Preview, Reorder, Replace, Remove */}
@@ -1295,9 +1603,11 @@ export default function AdminProductsPage() {
                       onClick={() => {
                         const nextIdx = formVariants.length + 1;
                         const slugPrefix = (formSlug || formName.toLowerCase().replace(/[^a-z0-9]+/g, '-')).toUpperCase().slice(0, 8);
+                        const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
                         setFormVariants((prev) => [
                           ...prev,
                           {
+                            id: tempId,
                             sku: `${slugPrefix}-${nextIdx}`,
                             title: 'Silk White',
                             material: 'PLA',
@@ -1306,6 +1616,7 @@ export default function AdminProductsPage() {
                             priceAdjustmentPaise: 0,
                             stockQuantity: 10,
                             leadTimeDays: 0,
+                            image: '',
                           },
                         ]);
                       }}
@@ -1319,7 +1630,7 @@ export default function AdminProductsPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {formVariants.map((v, vIdx) => (
                       <div
-                        key={vIdx}
+                        key={v.id || `v-${vIdx}`}
                         style={{
                           background: 'var(--surface-raised)',
                           border: '1px solid var(--border-decor)',
@@ -1435,6 +1746,24 @@ export default function AdminProductsPage() {
                             }}
                             style={{ width: '100%', padding: '4px 6px', fontSize: '0.75rem', borderRadius: '3px', border: '1px solid var(--border-decor)', background: 'var(--surface-card)', color: 'var(--text-primary)' }}
                           />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                            Associated Photo
+                          </label>
+                          <select
+                            value={v.image || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setFormVariants((prev) => prev.map((item, i) => i === vIdx ? { ...item, image: val } : item));
+                            }}
+                            style={{ width: '100%', padding: '4px 6px', fontSize: '0.75rem', borderRadius: '3px', border: '1px solid var(--border-decor)', background: 'var(--surface-card)', color: 'var(--text-primary)' }}
+                          >
+                            <option value="">No Image (Generic)</option>
+                            {formImages.map((img, i) => (
+                              <option key={i} value={img}>Photo #{i + 1} ({img.split('/').pop()?.slice(0, 16)})</option>
+                            ))}
+                          </select>
                         </div>
                         <div>
                           <button

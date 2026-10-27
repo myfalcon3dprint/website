@@ -1,23 +1,30 @@
 'use client';
 
 import React, { useState } from 'react';
+import { usePathname } from 'next/navigation';
 
 const WHATSAPP_NUMBER = '919850607144';
 const DEFAULT_MESSAGE = 'Hi Falcon 3D Prints, I have an inquiry about 3D printing services and custom models.';
 
 export default function WhatsAppButton() {
+  const pathname = usePathname();
   const [isHovered, setIsHovered] = useState(false);
+
+  if (pathname?.startsWith('/admin')) {
+    return null;
+  }
 
   const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(DEFAULT_MESSAGE)}`;
 
   return (
     <aside
       aria-label="Direct WhatsApp Contact"
+      className="whatsapp-floating-aside"
       style={{
         position: 'fixed',
-        bottom: '1.75rem',
-        right: '1.75rem',
-        zIndex: 80,
+        bottom: 'var(--whatsapp-bottom, calc(1.5rem + env(safe-area-inset-bottom, 0px)))',
+        right: '1.5rem',
+        zIndex: 65,
         display: 'flex',
         alignItems: 'center',
         gap: '0.75rem',
@@ -30,6 +37,7 @@ export default function WhatsAppButton() {
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Chat with Falcon 3D Prints on WhatsApp"
+        className="whatsapp-floating-btn"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         style={{
@@ -149,6 +157,14 @@ export default function WhatsAppButton() {
           }
         }
         @media (max-width: 640px) {
+          aside[aria-label="Direct WhatsApp Contact"] {
+            --whatsapp-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+            right: 1rem !important;
+          }
+          aside[aria-label="Direct WhatsApp Contact"] a {
+            width: 3.1rem !important;
+            height: 3.1rem !important;
+          }
           .whatsapp-tooltip {
             display: none !important;
           }

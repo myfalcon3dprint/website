@@ -78,8 +78,8 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
           display: 'flex',
           flexDirection: 'column',
           zIndex: 100,
-          boxShadow: 'var(--shadow-dropdown)',
-          animation: 'cartDrawerSlideIn 260ms cubic-bezier(0.16, 1, 0.3, 1)',
+          boxShadow: 'var(--shadow-drawer)',
+          animation: 'cartDrawerSlideIn 280ms cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
         {/* Header */}
@@ -193,137 +193,210 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
               </Link>
             </div>
           ) : (
-            cart.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  display: 'flex',
-                  gap: '0.9rem',
-                  padding: '0.95rem',
-                  background: 'var(--surface)',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--border-subtle)',
-                  boxShadow: 'var(--shadow-subtle)',
-                }}
-              >
-                {/* Thumbnail */}
+            cart.map((item) => {
+              const itemImage = item.variant.image || item.product.images[0] || '';
+              const isReadyStock = item.variant.leadTimeDays === 0;
+              const maxStock = isReadyStock ? item.variant.stockQuantity : 99;
+              const isAtStockLimit = isReadyStock && item.quantity >= maxStock;
+
+              return (
                 <div
+                  key={item.id}
                   style={{
-                    width: '4.5rem',
-                    height: '4.5rem',
-                    borderRadius: 'var(--radius-xs)',
-                    overflow: 'hidden',
-                    background: 'var(--surface-alt)',
-                    border: '1px solid var(--border-subtle)',
-                    flexShrink: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.65rem',
+                    padding: '0.95rem',
+                    background: 'var(--surface)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: item.needsReselection ? '1px solid var(--status-mto-border)' : '1px solid var(--border-subtle)',
+                    boxShadow: 'var(--shadow-subtle)',
                   }}
                 >
-                  <img
-                    src={item.product.images[0]}
-                    alt={item.product.title}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                </div>
-
-                {/* Details */}
-                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                  <div>
-                    <h4 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>
-                      {item.product.title}
-                    </h4>
-                    <p style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '0.15rem', margin: 0 }}>
-                      {item.variant.title}
-                    </p>
-                    <p style={{ fontSize: '0.72rem', color: 'var(--brand-accent)', marginTop: '0.15rem', fontWeight: 600, margin: 0 }}>
-                      {item.variant.material} • {item.variant.leadTimeDays === 0 ? 'Ready Stock' : `${item.variant.leadTimeDays}d lead time`}
-                    </p>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.6rem' }}>
-                    {/* Stepper with accessible 32px targets */}
+                  {item.needsReselection && (
                     <div
                       style={{
+                        padding: '0.5rem 0.65rem',
+                        background: 'var(--status-mto-bg)',
+                        color: 'var(--status-mto)',
+                        fontSize: '0.74rem',
+                        fontWeight: 600,
+                        borderRadius: 'var(--radius-xs)',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '0.35rem',
-                        background: 'var(--surface-alt)',
-                        padding: '0.15rem',
-                        borderRadius: 'var(--radius-xs)',
-                        border: '1px solid var(--border-subtle)',
+                        justifyContent: 'space-between',
                       }}
                     >
-                      <button
-                        onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                        aria-label="Decrease quantity"
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: '1.75rem',
-                          height: '1.75rem',
-                          color: 'var(--text-primary)',
-                          background: 'none',
-                          border: 'none',
-                          borderRadius: 'var(--radius-xs)',
-                          cursor: 'pointer',
-                        }}
+                      <span>Variant unavailable — please re-select</span>
+                      <Link
+                        href={`/catalog/${item.product.slug}`}
+                        onClick={onClose}
+                        style={{ color: 'var(--status-mto)', textDecoration: 'underline' }}
                       >
-                        <Minus size={13} />
-                      </button>
-                      <span style={{ fontSize: '0.85rem', fontWeight: 700, minWidth: '1.25rem', textAlign: 'center', color: 'var(--text-primary)' }}>
-                        {item.quantity}
-                      </span>
-                      <button
-                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                        aria-label="Increase quantity"
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: '1.75rem',
-                          height: '1.75rem',
-                          color: 'var(--text-primary)',
-                          background: 'none',
-                          border: 'none',
-                          borderRadius: 'var(--radius-xs)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <Plus size={13} />
-                      </button>
+                        Select Option
+                      </Link>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '0.9rem' }}>
+                    {/* Thumbnail */}
+                    <div
+                      style={{
+                        width: '4.75rem',
+                        height: '4.75rem',
+                        borderRadius: 'var(--radius-xs)',
+                        overflow: 'hidden',
+                        background: '#F5F5F0',
+                        border: '1px solid var(--border-subtle)',
+                        flexShrink: 0,
+                        position: 'relative',
+                      }}
+                    >
+                      {itemImage ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={itemImage}
+                          alt={`${item.product.title} - ${item.variant.title}`}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.opacity = '0.3';
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.68rem',
+                            color: 'var(--text-muted)',
+                            textAlign: 'center',
+                            padding: '0.25rem',
+                          }}
+                        >
+                          Studio Preview
+                        </div>
+                      )}
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <span style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {formatINR(item.variant.pricePaise * item.quantity)}
-                      </span>
-                      <button
-                        onClick={() => removeFromCart(item.id)}
-                        aria-label={`Remove ${item.product.title} from cart`}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: '1.75rem',
-                          height: '1.75rem',
-                          color: 'var(--status-danger)',
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          borderRadius: 'var(--radius-xs)',
-                          opacity: 0.85,
-                          transition: 'opacity var(--transition-fast)',
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
-                        onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.85')}
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                    {/* Details */}
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                      <div>
+                        <h4 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>
+                          {item.product.title}
+                        </h4>
+                        <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.2rem', margin: 0, fontWeight: 500 }}>
+                          {item.variant.title}
+                        </p>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.3rem' }}>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--surface-alt)', padding: '0.1rem 0.35rem', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border-subtle)' }}>
+                            {item.variant.color}
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--surface-alt)', padding: '0.1rem 0.35rem', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border-subtle)' }}>
+                            {item.variant.material} • {item.variant.finish}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', margin: 0 }}>
+                          {formatINR(item.variant.pricePaise)} each
+                        </p>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.6rem' }}>
+                        {/* Stepper with accessible targets */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                            background: 'var(--surface-alt)',
+                            padding: '0.15rem',
+                            borderRadius: 'var(--radius-xs)',
+                            border: '1px solid var(--border-subtle)',
+                          }}
+                        >
+                          <button
+                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                            aria-label={`Decrease quantity of ${item.variant.title}`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: '1.75rem',
+                              height: '1.75rem',
+                              color: 'var(--text-primary)',
+                              background: 'none',
+                              border: 'none',
+                              borderRadius: 'var(--radius-xs)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <Minus size={13} />
+                          </button>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 700, minWidth: '1.25rem', textAlign: 'center', color: 'var(--text-primary)' }}>
+                            {item.quantity}
+                          </span>
+                          <button
+                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                            disabled={isAtStockLimit}
+                            aria-label={`Increase quantity of ${item.variant.title}`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: '1.75rem',
+                              height: '1.75rem',
+                              color: isAtStockLimit ? 'var(--text-muted)' : 'var(--text-primary)',
+                              background: 'none',
+                              border: 'none',
+                              borderRadius: 'var(--radius-xs)',
+                              cursor: isAtStockLimit ? 'not-allowed' : 'pointer',
+                              opacity: isAtStockLimit ? 0.4 : 1,
+                            }}
+                          >
+                            <Plus size={13} />
+                          </button>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <span className="tabular-num" style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {formatINR(item.variant.pricePaise * item.quantity)}
+                          </span>
+                          <button
+                            onClick={() => removeFromCart(item.id)}
+                            aria-label={`Remove ${item.variant.title} from cart`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: '1.75rem',
+                              height: '1.75rem',
+                              color: 'var(--status-danger)',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              borderRadius: 'var(--radius-xs)',
+                              opacity: 0.85,
+                              transition: 'opacity var(--transition-fast)',
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+                            onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.85')}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
+                  {isAtStockLimit && (
+                    <span style={{ fontSize: '0.7rem', color: 'var(--brand-accent)', fontWeight: 600 }}>
+                      Maximum stock reached ({maxStock} available)
+                    </span>
+                  )}
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -338,7 +411,7 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
               <span>Subtotal</span>
-              <span style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '1.1rem' }}>
+              <span className="tabular-num" style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '1.1rem' }}>
                 {formatINR(subtotalPaise)}
               </span>
             </div>
@@ -346,15 +419,37 @@ export default function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
               Shipping calculated at checkout. Free shipping on orders over ₹999.
             </p>
 
-            <Link
-              href="/checkout"
-              onClick={onClose}
-              className="btn-primary"
-              style={{ width: '100%', padding: '0.8rem', fontSize: '0.94rem', gap: '0.5rem', marginBottom: '0.5rem' }}
-            >
-              <span>Proceed to Checkout</span>
-              <ArrowRight size={16} />
-            </Link>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              <Link
+                href="/cart"
+                onClick={onClose}
+                className="btn-secondary"
+                style={{ flex: 1, padding: '0.75rem', fontSize: '0.88rem', textAlign: 'center', justifyContent: 'center' }}
+              >
+                View Cart
+              </Link>
+              <Link
+                href="/checkout"
+                onClick={onClose}
+                className="btn-primary"
+                style={{
+                  flex: 1.5,
+                  padding: '0.8rem',
+                  fontSize: '0.88rem',
+                  gap: '0.45rem',
+                  justifyContent: 'center',
+                  background: 'linear-gradient(135deg, #1A1816 0%, #2A241F 100%)',
+                  border: '1px solid var(--gallery-gold)',
+                  color: '#FFFFFF',
+                  boxShadow: '0 4px 14px rgba(0, 0, 0, 0.25)',
+                  letterSpacing: '0.04em',
+                  fontWeight: 700,
+                }}
+              >
+                <span style={{ color: 'var(--gallery-gold)' }}>Express Checkout</span>
+                <ArrowRight size={15} color="var(--gallery-gold)" />
+              </Link>
+            </div>
 
             <button
               onClick={onClose}

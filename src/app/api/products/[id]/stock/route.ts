@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseAdminClient, verifyStaffSession, recordAuditLog } from '@/lib/supabase/server';
+import { getSupabaseAdminClient } from '@/lib/supabase/server';
 import { serializeProductFromDb } from '@/lib/serializers';
 
 interface RouteContext {
@@ -10,6 +10,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
 
   // 1. RBAC: Only owner or catalog_editor may alter product stock
+  const { verifyStaffSession, recordAuditLog } = await import('@/lib/supabase/server');
   const auth = await verifyStaffSession(['owner', 'catalog_editor']);
   if (!auth.authorized) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -146,7 +147,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     // Update variant stock atomically
     const { data: updatedVariant, error: updateError } = await supabase
       .from('product_variants')
-      .update({ stock_quantity: targetStock, updated_at: new Date().toISOString() })
+      .update({ stock_quantity: targetStock })
       .eq('id', variantId)
       .eq('product_id', id)
       .select()
@@ -174,7 +175,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       // Rollback variant stock write if audit log write fails
       await supabase
         .from('product_variants')
-        .update({ stock_quantity: variant.stock_quantity, updated_at: variant.updated_at })
+        .update({ stock_quantity: variant.stock_quantity })
         .eq('id', variantId);
 
       return NextResponse.json(

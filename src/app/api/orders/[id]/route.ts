@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdminClient, verifyStaffSession, recordAuditLog } from '@/lib/supabase/server';
 import { serializeOrderFromDb } from '@/lib/serializers';
-import { OrderStatus, ShippingAddress } from '@/lib/types';
+import { Order, OrderStatus, ShippingAddress } from '@/lib/types';
+import { AdminDataService } from '@/lib/adminDataStore';
+import { maskCustomerPII, hasPermission } from '@/lib/rbac';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -15,9 +17,22 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
+  // RBAC: Catalog editor has no order access
+  if (auth.profile.role === 'catalog_editor') {
+    return NextResponse.json(
+      { error: "Forbidden: Role 'catalog_editor' does not have permission to view order details." },
+      { status: 403 }
+    );
+  }
+
   const supabase = getSupabaseAdminClient();
   if (!supabase) {
-    return NextResponse.json({ error: 'Database service unavailable' }, { status: 500 });
+    const rawOrder = AdminDataService.getOrderById(id);
+    if (!rawOrder) {
+      return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    }
+    const order = auth.profile.role === 'production_operator' ? maskCustomerPII(rawOrder, auth.profile.role) : rawOrder;
+    return NextResponse.json({ order });
   }
 
   const { data, error } = await supabase
@@ -30,34 +45,72 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: 'Order not found' }, { status: 404 });
   }
 
-  return NextResponse.json({ order: serializeOrderFromDb(data) });
+  const serialized = serializeOrderFromDb(data);
+  const order = auth.profile.role === 'production_operator' ? maskCustomerPII(serialized, auth.profile.role) : serialized;
+  return NextResponse.json({ order });
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
 
-  // 1. In-Handler Authorization check
-  const auth = await verifyStaffSession(['owner', 'order_manager', 'production_operator']);
+  // 1. In-Handler Authorization check: Only owner and order_manager may modify orders
+  const auth = await verifyStaffSession(['owner', 'order_manager']);
   if (!auth.authorized) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   const supabase = getSupabaseAdminClient();
   if (!supabase) {
-    return NextResponse.json({ error: 'Database service unavailable' }, { status: 500 });
+    try {
+      const body = await request.json();
+      const { newStatus, statusNote, shippingAddress, trackingNumber } = body;
+      const current = AdminDataService.getOrderById(id);
+      if (!current) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+
+      const updates: Partial<Order> = {};
+      if (newStatus) {
+        updates.status = newStatus;
+        updates.statusHistory = [
+          ...(current.statusHistory || []),
+          { status: newStatus, timestamp: new Date().toISOString(), note: statusNote || `Status updated to ${newStatus}` },
+        ];
+      }
+      if (shippingAddress) {
+        updates.shippingAddress = { ...current.shippingAddress, ...shippingAddress };
+      }
+      if (trackingNumber !== undefined) {
+        updates.trackingNumber = trackingNumber;
+      }
+
+      const updated = AdminDataService.updateOrder(id, updates);
+      AdminDataService.recordAudit({
+        staffUserId: auth.user.id,
+        staffName: auth.profile.full_name,
+        staffRole: auth.profile.role,
+        action: `ORDER_UPDATED_${newStatus || 'DETAILS'}`,
+        entityType: 'order',
+        entityId: current.orderNumber,
+        oldState: { status: current.status },
+        newState: updates as Record<string, unknown>,
+        notes: statusNote || 'Order modified in store engine',
+      });
+
+      return NextResponse.json({ success: true, order: updated });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error updating order';
+      return NextResponse.json({ error: msg }, { status: 500 });
+    }
   }
 
   try {
     const body = await request.json();
+    const newStatus = (body.newStatus || body.status) as OrderStatus | undefined;
+    const statusNote = (body.statusNote || body.reason || body.notes) as string | undefined;
     const {
-      newStatus,
-      statusNote,
       shippingAddress,
       trackingNumber,
       lastKnownUpdatedAt,
     }: {
-      newStatus?: OrderStatus;
-      statusNote?: string;
       shippingAddress?: Partial<ShippingAddress>;
       trackingNumber?: string;
       lastKnownUpdatedAt?: string;

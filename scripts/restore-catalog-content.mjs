@@ -90,6 +90,39 @@ async function restoreCatalog() {
     .update({ image: '/products/cyber-gryphon-figure.jpg' })
     .eq('sku', 'FAL-FIG-GRY-TIT-STD');
 
+  // Ensure AeroStand has a valid product variant
+  await supabase
+    .from('product_variants')
+    .upsert({
+      id: 'b3333333-3333-3333-3333-333333333331',
+      product_id: 'a3333333-3333-3333-3333-333333333333',
+      sku: 'FAL-DSK-AERO-BLK',
+      title: 'Standard Arch - Matte Stealth Black',
+      material: 'PETG',
+      color: 'Stealth Black',
+      finish: 'Raw (Layered)',
+      price_adjustment_paise: 0,
+      stock_quantity: 12,
+      lead_time_days: 0,
+      image: '/products/stand-matte-white.jpg',
+    }, { onConflict: 'sku' });
+
+  // 5. Restore Falcon HexDesk Organizer to use hexagrid image instead of planter
+  const { data: p4, error: err4 } = await supabase
+    .from('products')
+    .update({
+      images: ['/products/hexagrid-desk-organizer.jpg'],
+      updated_at: new Date().toISOString(),
+    })
+    .eq('slug', 'falcon-hexdesk-organizer')
+    .select('id, name, images');
+
+  if (err4) {
+    console.error('Failed to restore HexDesk Organizer:', err4);
+  } else {
+    console.log('✓ Restored HexDesk Organizer:', p4);
+  }
+
   console.log('Restoration complete.');
 }
 
