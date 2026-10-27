@@ -23,6 +23,7 @@ const nextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ['@supabase/supabase-js', '@supabase/ssr'],
   images: {
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: 'https',
