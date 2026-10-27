@@ -25,8 +25,19 @@ export function getSupabaseBrowserClient(): SupabaseClient | null {
   }
 
   if (!browserClient) {
-    browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey);
+    try {
+      browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey);
+    } catch {
+      return null;
+    }
   }
 
   return browserClient;
 }
+
+export const createClient = (): SupabaseClient | null => {
+  return getSupabaseBrowserClient();
+};
+
+export default getSupabaseBrowserClient;
+

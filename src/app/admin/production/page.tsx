@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthUser } from '@/lib/supabase/auth';
 import { ProductionJob, PrinterEquipment } from '@/lib/types';
