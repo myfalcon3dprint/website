@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useCart, useProducts, openCartDrawer } from '@/lib/store';
 import { formatINR } from '@/lib/money';
+import { INITIAL_PRODUCTS } from '@/lib/mock-data';
 import { Star, Heart, ShoppingBag, ArrowRight, Check } from 'lucide-react';
 import type { Product } from '@/lib/types';
 
@@ -36,8 +37,15 @@ export default function PopularBestsellersSection() {
   }, []);
 
   const displayItems = React.useMemo(() => {
-    const published = products.filter((p) => p.isPublished && !p.archivedAt);
-    return published.slice(0, 10).map((p) => ({
+    // Robust pool: merge store products with INITIAL_PRODUCTS if store has few items
+    const pool = Array.isArray(products) && products.length > 0 ? products : INITIAL_PRODUCTS;
+    const mergedPool = pool.length < 5
+      ? [...pool, ...INITIAL_PRODUCTS.filter((ip) => !pool.some((p) => p.id === ip.id || p.slug === ip.slug))]
+      : pool;
+    const published = mergedPool.filter((p) => p.isPublished !== false && !p.archivedAt);
+    const finalItems = published.length > 0 ? published : INITIAL_PRODUCTS;
+
+    return finalItems.slice(0, 10).map((p) => ({
       id: p.id,
       slug: p.slug,
       name: p.title,
@@ -64,7 +72,8 @@ export default function PopularBestsellersSection() {
   const handleAddToCart = (item: BestsellerDisplayItem, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const realProduct = products.find((p) => p.slug === item.slug || p.id === item.id);
+    const allProducts = [...products, ...INITIAL_PRODUCTS];
+    const realProduct = allProducts.find((p) => p.slug === item.slug || p.id === item.id);
     if (!realProduct) return;
 
     setAddingId(item.id);
@@ -90,10 +99,10 @@ export default function PopularBestsellersSection() {
           <div>
             <div className="ornamental-eyebrow-row">
               <span className="ornamental-diamond">♦</span>
-              <span className="bestsellers-eyebrow">POPULAR RIGHT NOW</span>
+              <span className="bestsellers-eyebrow">BESTSELLING EDITIONS</span>
               <span className="ornamental-diamond">♦</span>
             </div>
-            <h2 className="bestsellers-heading">Bestsellers</h2>
+            <h2 className="bestsellers-heading">Popular Right Now</h2>
           </div>
 
           <Link href="/catalog?sort=bestselling" className="bestsellers-view-all">
@@ -145,6 +154,7 @@ export default function PopularBestsellersSection() {
               <div key={item.id} className="bestseller-card">
                 {/* Visual Plinth & Image */}
                 <div className="bestseller-img-stage">
+                  <span className="bestseller-badge">{item.category}</span>
                   <Link href={`/catalog/${item.slug}`} className="bestseller-img-link">
                     <Image
                       src={item.imageUrl}

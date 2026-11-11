@@ -149,8 +149,7 @@ export default function Header() {
       <header
         className={pathname === '/' ? 'home-header' : undefined}
         style={{
-          position: 'sticky',
-          top: 0,
+          position: 'relative',
           zIndex: 40,
           background: pathname === '/' ? '#10100F' : (isScrolled ? 'rgba(251, 249, 245, 0.96)' : 'rgba(251, 249, 245, 0.92)'),
           backdropFilter: 'blur(16px)',
@@ -199,101 +198,69 @@ export default function Header() {
             </div>
           </Link>
 
-          {/* Homepage Center Search Pill */}
-          {pathname === '/' ? (
-            <div
-              className="home-search-pill"
-              onClick={() => setIsSearchOpen(true)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter' || e.key === ' ') setIsSearchOpen(true); }}
-              style={{
-                flex: '1',
-                maxWidth: '480px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.65rem',
-                padding: '0.55rem 1.15rem',
-                borderRadius: '9999px',
-                background: 'rgba(255, 255, 255, 0.06)',
-                border: '1px solid rgba(217, 194, 163, 0.22)',
-                cursor: 'pointer',
-                color: 'rgba(245, 239, 229, 0.72)',
-                fontSize: '0.84rem',
-                transition: 'border-color 180ms ease, background 180ms ease',
-              }}
+          {/* Desktop Primary Navigation: Home, Shop, About Us, Contact Us */}
+          <nav
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: pathname === '/' ? '2.5rem' : '2rem',
+            }}
+            className="desktop-nav"
+            aria-label="Primary navigation"
+          >
+            <Link
+              href="/"
+              className={`nav-link${pathname === '/' ? ' active' : ''}`}
             >
-              <Search size={15} style={{ color: '#F45112', flexShrink: 0 }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                Search for temple replicas, planters, accessories...
-              </span>
-            </div>
-          ) : (
-            /* Desktop Navigation for other routes */
-            <nav
-              style={{ display: 'flex', alignItems: 'center', gap: '1.85rem' }}
-              className="desktop-nav"
-              aria-label="Primary navigation"
+              <span>Home</span>
+            </Link>
+
+            <Link
+              href="/catalog"
+              className={`nav-link${pathname.startsWith('/catalog') ? ' active' : ''}`}
             >
-              <Link
-                href="/catalog"
-                className={`nav-link${pathname.startsWith('/catalog') ? ' active' : ''}`}
-              >
-                <Compass size={15} style={{ color: 'var(--brand-accent)', flexShrink: 0 }} />
-                <span>Catalog</span>
-              </Link>
+              <span>Shop</span>
+            </Link>
 
-              <Link
-                href="/catalog?sort=bestselling"
-                className={`nav-link${pathname.includes('bestselling') ? ' active' : ''}`}
-              >
-                <Sparkles size={15} style={{ color: 'var(--brand-accent)', flexShrink: 0 }} />
-                <span>Bestsellers</span>
-              </Link>
+            <Link
+              href="/about"
+              className={`nav-link${pathname === '/about' ? ' active' : ''}`}
+            >
+              <span>About Us</span>
+            </Link>
 
-              <Link
-                href="/account"
-                className={`nav-link${pathname.startsWith('/account') ? ' active' : ''}`}
-              >
-                <User size={15} style={{ flexShrink: 0 }} />
-                <span>Order Tracking</span>
-              </Link>
-
-              <Link
-                href="/contact"
-                className={`nav-link${pathname === '/contact' ? ' active' : ''}`}
-              >
-                <Phone size={14} style={{ flexShrink: 0 }} />
-                <span>Nashik Studio</span>
-              </Link>
-            </nav>
-          )}
+            <Link
+              href="/contact"
+              className={`nav-link${pathname === '/contact' ? ' active' : ''}`}
+            >
+              <span>Contact Us</span>
+            </Link>
+          </nav>
 
           {/* Action Header Items */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            {/* Quick Catalog Search Trigger for mobile or non-home */}
+            {/* Quick Catalog Search Trigger */}
             <button
               ref={searchTriggerRef}
               type="button"
               onClick={() => setIsSearchOpen(true)}
               aria-label="Search creations and products"
-              className={pathname === '/' ? 'mobile-search-btn header-action-btn' : 'btn-icon'}
+              className={pathname === '/' ? 'header-action-btn' : 'btn-icon'}
               title="Search catalog (Press Esc to close)"
             >
               <Search size={18} />
             </button>
 
             {/* Wishlist Link on Desktop */}
-            {pathname === '/' && (
-              <Link
-                href="/catalog?filter=wishlist"
-                aria-label="Wishlist"
-                className="header-action-btn header-wishlist-link desktop-only-action"
-                title="Your Wishlist"
-              >
-                <Heart size={19} />
-              </Link>
-            )}
+            <Link
+              href="/catalog?filter=wishlist"
+              aria-label="Wishlist"
+              className={pathname === '/' ? 'header-action-btn header-wishlist-link desktop-only-action' : 'btn-icon header-wishlist-link desktop-only-action'}
+              title="Your Wishlist"
+            >
+              <Heart size={19} />
+            </Link>
 
             {/* User Account / Login Link on Desktop */}
             <Link
@@ -446,12 +413,12 @@ export default function Header() {
             }}
           >
             <Link
-              href="/catalog"
+              href="/"
               onClick={() => setMobileMenuOpen(false)}
               className="mobile-drawer-link"
               style={{
                 fontSize: '0.95rem',
-                color: 'var(--text-primary)',
+                color: pathname === '/' ? 'var(--brand-accent)' : 'var(--text-primary)',
                 fontWeight: 600,
                 display: 'flex',
                 alignItems: 'center',
@@ -460,8 +427,61 @@ export default function Header() {
                 transition: 'color var(--duration-fast) ease',
               }}
             >
-              <Compass size={18} style={{ color: 'var(--brand-accent)' }} />
-              Browse Catalog
+              <span>Home</span>
+            </Link>
+
+            <Link
+              href="/catalog"
+              onClick={() => setMobileMenuOpen(false)}
+              className="mobile-drawer-link"
+              style={{
+                fontSize: '0.95rem',
+                color: pathname.startsWith('/catalog') ? 'var(--brand-accent)' : 'var(--text-primary)',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.65rem',
+                padding: '0.55rem 0',
+                transition: 'color var(--duration-fast) ease',
+              }}
+            >
+              <span>Shop</span>
+            </Link>
+
+            <Link
+              href="/about"
+              onClick={() => setMobileMenuOpen(false)}
+              className="mobile-drawer-link"
+              style={{
+                fontSize: '0.95rem',
+                color: pathname === '/about' ? 'var(--brand-accent)' : 'var(--text-primary)',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.65rem',
+                padding: '0.55rem 0',
+                transition: 'color var(--duration-fast) ease',
+              }}
+            >
+              <span>About Us</span>
+            </Link>
+
+            <Link
+              href="/contact"
+              onClick={() => setMobileMenuOpen(false)}
+              className="mobile-drawer-link"
+              style={{
+                fontSize: '0.95rem',
+                color: pathname === '/contact' ? 'var(--brand-accent)' : 'var(--text-primary)',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.65rem',
+                padding: '0.55rem 0',
+                transition: 'color var(--duration-fast) ease',
+              }}
+            >
+              <span>Contact Us</span>
             </Link>
 
             <Link
@@ -480,7 +500,7 @@ export default function Header() {
               }}
             >
               <Heart size={18} style={{ color: 'var(--brand-accent)' }} />
-              Saved Wishlist
+              <span>Saved Wishlist</span>
             </Link>
 
             <Link
@@ -499,7 +519,7 @@ export default function Header() {
               }}
             >
               <FileCode size={18} />
-              Custom 3D Quotation
+              <span>Custom 3D Quotation</span>
             </Link>
 
             {user ? (
